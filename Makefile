@@ -16,7 +16,7 @@ MCP_SOURCES = mcp/src/main.c mcp/src/config.c mcp/src/util.c mcp/src/reports.c \
               mcp/src/tools.c mcp/src/protocol.c $(CORE_SOURCES)
 HEADERS = src/hashprobe.h src/reference/sha256.h vendor/cjson/cJSON.h
 
-.PHONY: all test test-mcp sanitize install clean
+.PHONY: all test test-mcp sanitize install package clean
 all: $(BUILD)/hashprobe $(BUILD)/hashprobe-mcp $(BUILD)/sha256-target
 
 $(BUILD):
@@ -47,6 +47,9 @@ install: $(BUILD)/hashprobe $(BUILD)/hashprobe-mcp
 	install -d "$(DESTDIR)$(PREFIX)/bin"
 	install -m 755 "$(BUILD)/hashprobe" "$(DESTDIR)$(PREFIX)/bin/hashprobe"
 	install -m 755 "$(BUILD)/hashprobe-mcp" "$(DESTDIR)$(PREFIX)/bin/hashprobe-mcp"
+
+package: all
+	sh scripts/package.sh "$(BUILD)"
 
 clean:
 	rm -rf build

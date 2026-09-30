@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / ${{ matrix.compiler }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            compiler: gcc
+            python: '3.12'
+            package: linux-x86_64
+          - os: ubuntu-24.04-arm
+            compiler: gcc
+            python: '3.12'
+            package: linux-arm64
+          - os: macos-15
+            compiler: clang
+            python: '3.12'
+            package: macos-arm64
+          - os: macos-15-intel
+            compiler: clang
+            python: '3.12'
+            package: macos-x86_64
+          - os: ubuntu-24.04
+            compiler: clang
+            python: '3.10'
+            package: ''
+    env:
+      TEST_CC: ${{ matrix.compiler }}
+      CFLAGS: -O2 -g -Werror
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: mcp/tests/requirements.txt
+      - name: Install the test client
+        run: python -m pip install -r mcp/tests/requirements.txt
+      - name: Check prerequisites and copied sources
+        run: |
+          "$TEST_CC" --version
+          openssl version
+          shasum -a 256 -c CHECKSUMS.sha256
+      - name: Build and test the CLI and MCP server
+        run: make CC="$TEST_CC" PYTHON=python test test-mcp
+      - name: Check installation
+        run: |
+          make CC="$TEST_CC" install DESTDIR="$RUNNER_TEMP/install" PREFIX=/usr/local
+          "$RUNNER_TEMP/install/usr/local/bin/hashprobe" self-test
+          "$RUNNER_TEMP/install/usr/local/bin/hashprobe-mcp" --version
+      - name: Package and check the extracted programs
+        if: matrix.package != ''
+        env:
+          PACKAGE_PLATFORM: ${{ matrix.package }}
+        run: |
+          make CC="$TEST_CC" package
+          version=$(./build/hashprobe --version | awk '{print $2}')
+          name="hashprobe-$version-$PACKAGE_PLATFORM"
+          mkdir "$RUNNER_TEMP/unpacked"
+          tar -xzf "dist/$name.tar.gz" -C "$RUNNER_TEMP/unpacked"
+          cd "$RUNNER_TEMP/unpacked/$name"
+          ./bin/hashprobe self-test
+          ./bin/hashprobe-mcp --version
+          ./bin/hashprobe check --report "$RUNNER_TEMP/package.json" -- ./bin/sha256-target
+      - name: Save the release archive
+        if: matrix.package != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hashprobe-${{ matrix.package }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  sanitize:
+    name: Sanitizers / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    env:
+      ASAN_OPTIONS: halt_on_error=1
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: mcp/tests/requirements.txt
+      - name: Install the test client
+        run: python -m pip install -r mcp/tests/requirements.txt
+      - name: Check for memory errors and invalid C operations
+        run: make CC=clang PYTHON=python sanitize

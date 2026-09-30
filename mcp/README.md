@@ -4,6 +4,8 @@ Hashprobe's MCP server lets agents test programs you configure, inspect failing 
 
 ## Build and install
 
+To skip the build, use a [prebuilt release](../docs/BINARIES.md), then continue with **Connect an agent** below.
+
 You need a C11 compiler, Make, and awk. Run these commands from the main Hashprobe folder.
 
 Build:

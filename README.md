@@ -1,10 +1,17 @@
 # Hashprobe
 
+[![CI](https://github.com/ArcX-Research/hashprobe/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ArcX-Research/hashprobe/actions/workflows/ci.yml)
+[![C11](https://img.shields.io/badge/C-C11-00599C)](Makefile)
+[![Linux and macOS](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-555)](docs/BINARIES.md)
+[![MIT license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 Hashprobe checks whether a program calculates SHA-256 hashes correctly. It saves failing inputs so you can test a fix. Use it to test changes to crypto libraries, compilers, or firmware.
 
 The command-line tool and [MCP server for agents](mcp/README.md) are written in C.
 
 ## Get started
+
+To use a prebuilt release, follow the [binary installation guide](docs/BINARIES.md). To build from source, continue below.
 
 You need macOS or Linux, a C11 compiler, Make, and awk. Python is only needed for development tests. Run these commands from the Hashprobe folder.
 
@@ -141,6 +148,34 @@ make sanitize PYTHON=.venv/bin/python
 ```
 
 The shared C engine is in [src](src), and the MCP server is in [mcp/src](mcp/src). See [code origins](PROVENANCE.md) for the reference implementation and included libraries.
+
+## CI and releases
+
+[CI](.github/workflows/ci.yml) runs on pull requests and pushes to `main`. It checks the CLI and MCP server with GCC and Clang on Linux and macOS, verifies the copied source files, checks installation and release archives, and runs both test suites with AddressSanitizer and UndefinedBehaviorSanitizer. Compiler warnings fail the normal builds.
+
+Each successful platform build saves a downloadable archive in the workflow run. [Dependabot](.github/dependabot.yml) checks weekly for updates to GitHub Actions and the MCP test client.
+
+To make a local archive for your current system:
+
+```sh
+make package
+```
+
+The archive is saved in `dist/`. Local packaging does not run the tests.
+
+To publish a release, set `HP_VERSION` in [src/hashprobe.h](src/hashprobe.h), commit the change, and push `main`. Tag that commit with the matching version, for example:
+
+```sh
+git tag -a v0.2.0 -m "Hashprobe 0.2.0"
+```
+
+Push the tag:
+
+```sh
+git push origin v0.2.0
+```
+
+The [release workflow](.github/workflows/release.yml) runs the same CI checks before publishing four archives and `SHA256SUMS` on [GitHub Releases](https://github.com/ArcX-Research/hashprobe/releases). Tags must use `vMAJOR.MINOR.PATCH` and match the source version. No extra repository secrets are needed.
 
 ## Scope and license
 

@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  version:
+    name: Check the version tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Match the tag to the source version
+        id: version
+        run: |
+          version=$(awk '$1 == "#define" && $2 == "HP_VERSION" {gsub(/"/, "", $3); print $3}' src/hashprobe.h)
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ || "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo 'The tag must be vMAJOR.MINOR.PATCH and match HP_VERSION in src/hashprobe.h.' >&2
+            exit 1
+          fi
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+  checks:
+    name: Test and package
+    needs: version
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Publish the tested archives
+    needs: [version, checks]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: hashprobe-*
+          path: dist
+          merge-multiple: true
+      - name: Verify all platforms and create checksums
+        working-directory: dist
+        run: |
+          for platform in linux-x86_64 linux-arm64 macos-x86_64 macos-arm64; do
+            test -s "hashprobe-$RELEASE_VERSION-$platform.tar.gz"
+          done
+          archives=(hashprobe-*.tar.gz)
+          test "${#archives[@]}" -eq 4
+          sha256sum "${archives[@]}" > SHA256SUMS
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" dist/*.tar.gz dist/SHA256SUMS \
+            --verify-tag --title "Hashprobe $RELEASE_TAG" --generate-notes
