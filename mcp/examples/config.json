@@ -1,0 +1,20 @@
+{
+  "report_dir": "../../reports/mcp",
+  "targets": {
+    "example": {
+      "command": ["./build/sha256-target"],
+      "cwd": "../..",
+      "description": "Included C example; shares Hashprobe's reference code"
+    },
+    "example-bug": {
+      "command": ["./build/sha256-target", "--demo-bug-nul"],
+      "cwd": "../..",
+      "description": "Deliberately wrong example that stops at a zero byte"
+    },
+    "openssl": {
+      "command": ["openssl", "dgst", "-sha256", "-binary"],
+      "output": "binary",
+      "description": "Independent SHA-256 implementation"
+    }
+  }
+}

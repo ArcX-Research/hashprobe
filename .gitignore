@@ -1,6 +1,7 @@
 # Build output and compiler artifacts
 /build/
 /build-*/
+/dist/
 /hashprobe
 /sha256-target
 /a.out
@@ -25,6 +26,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+*.egg-info/
 
 # Editor backups and macOS metadata
 *~

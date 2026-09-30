@@ -13,7 +13,7 @@ SOURCES = src/main.c src/suite.c src/target.c src/report.c src/util.c \
           src/reference/sha256.c vendor/cjson/cJSON.c
 HEADERS = src/hashprobe.h src/reference/sha256.h vendor/cjson/cJSON.h
 
-.PHONY: all test sanitize install clean
+.PHONY: all test test-mcp sanitize install clean
 all: $(BUILD)/hashprobe $(BUILD)/sha256-target
 
 $(BUILD):
@@ -27,6 +27,9 @@ $(BUILD)/sha256-target: examples/sha256_target.c src/reference/sha256.c src/refe
 
 test: all
 	$(PYTHON) tests/test_hashprobe.py --build-dir "$(BUILD)"
+
+test-mcp: all
+	HASHPROBE_TEST_BUILD="$(abspath $(BUILD))" $(PYTHON) -m unittest discover -s mcp/tests -v
 
 sanitize:
 	$(MAKE) BUILD=build/sanitize CFLAGS='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer' LDFLAGS='-fsanitize=address,undefined' test

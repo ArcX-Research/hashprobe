@@ -25,6 +25,10 @@ The example uses the same SHA-256 code as Hashprobe. To check a separate impleme
   -- openssl dgst -sha256 -binary
 ```
 
+## Use with agents
+
+The optional MCP server lets agents discover configured programs, run tests, and replay failures. Follow the [agent setup guide](mcp/README.md) to install it and connect your agent application.
+
 ## Read the result
 
 | Result | Meaning | Exit code |
@@ -99,7 +103,7 @@ make test       # Run the automated tests
 make sanitize   # Also check for memory errors and unsafe C operations
 ```
 
-Python is not needed to run Hashprobe. The C code is in [src](src); [PROVENANCE.md](PROVENANCE.md) explains where the code and included libraries came from.
+Python is not needed to run the C command. The optional MCP server uses Python. The C code is in [src](src); [PROVENANCE.md](PROVENANCE.md) explains where the code and included libraries came from.
 
 ## Scope
 

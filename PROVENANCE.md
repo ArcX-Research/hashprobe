@@ -25,6 +25,8 @@ Its source files and [MIT license](vendor/cjson/LICENSE) are unchanged from the 
 
 The command-line interface, test generator, program runner, reports, failure replay, example program, and automated tests were written for Hashprobe. They are in [src](src), [examples](examples), and [tests](tests).
 
+The agent connection code in [mcp/src](mcp/src) was also written for Hashprobe. It uses the [official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk), installed as a package dependency. The connection is tested with SDK version 2.2.0; supported dependencies are listed in [pyproject.toml](pyproject.toml).
+
 Hashprobe and its copied SHA-256 code use the project [MIT license](LICENSE). cJSON keeps its original copyright notice and MIT license.
 
 ## Check the copied files
