@@ -88,7 +88,7 @@ class HashprobeTests(unittest.TestCase):
 
     def test_help_version_and_missing_command(self):
         self.assertIn("Hashprobe", self.cli("--help").stdout)
-        self.assertIn("0.1.0", self.cli("--version").stdout)
+        self.assertRegex(self.cli("--version").stdout, r"^hashprobe \d+\.\d+\.\d+\n$")
         self.cli(expected=2)
 
     def test_reference_known_answers(self):

@@ -3,6 +3,7 @@
 /build-*/
 /dist/
 /hashprobe
+/hashprobe-mcp
 /sha256-target
 /a.out
 *.o

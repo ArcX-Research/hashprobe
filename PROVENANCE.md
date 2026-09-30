@@ -1,42 +1,36 @@
 # Where the code comes from
 
-Hashprobe combines SHA-256 code from the original research project, a library for reading and writing JSON, and new code for running tests and saving results.
+## SHA-256 reference
 
-## SHA-256 code
+These files were copied unchanged from the original research workspace:
 
-These two files were copied without changes from the original research workspace:
-
-| File in Hashprobe | Original location |
+| File | Original location |
 | --- | --- |
 | [src/reference/sha256.c](src/reference/sha256.c) | `sha256/c/sha256.c` |
 | [src/reference/sha256.h](src/reference/sha256.h) | `sha256/c/sha256.h` |
 
-Hashprobe uses this code to calculate the expected SHA-256 hashes for its generated tests.
-
-The four fixed test examples came from `sha256/python/test_sha256.py` in the research workspace. They cover an empty input, `abc`, a 56-byte message, and one million `a` bytes. Hashprobe generates the remaining inputs itself.
+Hashprobe uses this code to calculate expected hashes. The four known answers came from `sha256/python/test_sha256.py` in the research workspace: an empty input, `abc`, a 56-byte message, and one million `a` bytes. Hashprobe generates the other inputs.
 
 ## JSON library
 
-[cJSON](https://github.com/DaveGamble/cJSON/releases/tag/v1.7.19) reads and writes the report files. Version **1.7.19** is included in [vendor/cjson](vendor/cjson), so it does not need a separate installation.
+[cJSON 1.7.19](https://github.com/DaveGamble/cJSON/releases/tag/v1.7.19) reads and writes reports, configuration files, and MCP messages. Its source and [MIT license](vendor/cjson/LICENSE) are included unchanged in [vendor/cjson](vendor/cjson).
 
-Its source files and [MIT license](vendor/cjson/LICENSE) are unchanged from the original release.
+## Hashprobe code
 
-## Code written for Hashprobe
+The command-line interface, test generator, program runner, reports, and replay code were written for Hashprobe. They are in [src](src), with [examples](examples) and [tests](tests).
 
-The command-line interface, test generator, program runner, reports, failure replay, example program, and automated tests were written for Hashprobe. They are in [src](src), [examples](examples), and [tests](tests).
+The C server in [mcp/src](mcp/src) implements the [MCP stdio protocol](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio) and shares the command-line tool's test engine. Tool definitions are in [mcp/tools.json](mcp/tools.json).
 
-The agent connection code in [mcp/src](mcp/src) was also written for Hashprobe. It uses the [official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk), installed as a package dependency. The connection is tested with SDK version 2.2.0; supported dependencies are listed in [pyproject.toml](pyproject.toml).
+The [official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) is used only as a test client. Its version is pinned in [mcp/tests/requirements.txt](mcp/tests/requirements.txt).
 
-Hashprobe and its copied SHA-256 code use the project [MIT license](LICENSE). cJSON keeps its original copyright notice and MIT license.
+Hashprobe and its copied SHA-256 code use the project [MIT license](LICENSE). cJSON retains its original copyright notice and license.
 
-## Check the copied files
+## Verify the copied files
 
-[CHECKSUMS.sha256](CHECKSUMS.sha256) records a value for each copied file. If a file changes, its calculated value changes too.
-
-To check those files against the recorded values, run this from the Hashprobe folder:
+[CHECKSUMS.sha256](CHECKSUMS.sha256) records the original files' hashes. From the Hashprobe folder, run:
 
 ```sh
 shasum -a 256 -c CHECKSUMS.sha256
 ```
 
-An unchanged file is listed as `OK`.
+Every entry should say `OK`.

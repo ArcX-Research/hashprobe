@@ -1,53 +1,50 @@
 # Use Hashprobe with agents
 
-The MCP server lets other people's agents run Hashprobe on their own computers. Each user chooses which programs can be tested. Reports and failing inputs stay on that computer.
+Hashprobe lets agents test programs you choose, inspect failing inputs, and replay tests after a fix. Reports are stored locally.
 
-The hash tests run in C. A small Python layer uses the [official MCP SDK](https://github.com/modelcontextprotocol/python-sdk) to connect agent applications to the C program.
+The server runs on macOS or Linux as one C executable, `hashprobe-mcp`. It includes the test engine and needs no Python installation.
 
-## Install
+## Build and install
 
-You need macOS 11 or newer, or Linux, plus Python 3.10 or newer and a C compiler. Run these commands from the main Hashprobe folder:
+With a C11 compiler, Make, and awk installed, run these commands from the main Hashprobe folder:
 
 ```sh
-python3 -m venv .venv
-.venv/bin/python -m pip install .
+make
+make install PREFIX="$HOME/.local"
 ```
 
-Installation builds and includes the C executable. You do not need to run `make` or install the C command separately.
-
-If you use `uv`, `uv tool install .` is an alternative. The commands below use the virtual environment shown above.
+This installs `hashprobe` and `hashprobe-mcp` into `~/.local/bin`. To use the build directly, replace the installed path below with `./build/hashprobe-mcp`.
 
 ## Connect an agent
 
-Create a configuration using your installed OpenSSL program:
+Hashprobe keeps its configuration at `~/.config/hashprobe/mcp.json`.
+
+**New setup:** create a configuration using an installed OpenSSL program:
 
 ```sh
-.venv/bin/hashprobe-mcp init
+"$HOME/.local/bin/hashprobe-mcp" init
 ```
 
-This creates `~/.config/hashprobe/mcp.json` and prints connection settings with the correct paths for your installation. Existing configuration files are preserved.
+**Existing setup:** keep your configuration and print its connection settings:
 
-Add the printed `hashprobe` entry to your agent application's MCP settings. Applications with a setup form need the printed `command` and `args`, using the **stdio** connection type. Restart or reconnect the MCP server in that application.
+```sh
+"$HOME/.local/bin/hashprobe-mcp" client-config
+```
 
-The server runs locally when your agent application starts it. There is no account, API key, or hosted service to configure.
+Both commands print a `hashprobe` entry for your agent application's MCP settings. Add that entry, or replace the old Python entry when upgrading. If the application uses a setup form, enter the printed `command` and `args` and choose **stdio**.
 
-Ask your agent:
+Reconnect the agent. It starts the server automatically. Existing configurations and reports work with the C version; `init` never replaces a configuration file.
+
+Try this prompt:
 
 > List the Hashprobe programs I can test, then check OpenSSL and explain the result.
 
-To print the connection settings again:
+## Add a program
 
-```sh
-.venv/bin/hashprobe-mcp client-config
-```
-
-## Add your own program
-
-Edit the configuration file and add another named program. For example:
+Add a named entry under `targets` in the configuration. For example:
 
 ```json
 {
-  "report_dir": "reports",
   "targets": {
     "firmware": {
       "command": ["/absolute/path/to/sha256-program"],
@@ -60,65 +57,56 @@ Edit the configuration file and add another named program. For example:
 }
 ```
 
-The program must read input bytes and print a SHA-256 hash, as described in the [main README](../README.md#test-your-own-program). Use `"output": "binary"` if it returns 32 raw bytes instead of 64 hex characters.
+The program must [read input bytes and return a SHA-256 hash](../README.md#test-your-own-program). Set `output` to `binary` if it returns 32 raw bytes instead of 64 hex characters.
 
-Relative directories are resolved from the configuration file's location. A relative executable path is resolved from the target's `cwd`. Restart the MCP server after editing the configuration.
+Relative directories are resolved from the configuration file's location. Relative executable paths are resolved from the program's `cwd`. Restart the server after editing the configuration.
 
-You can also create a separate configuration from a command:
+To create a separate configuration from a command:
 
 ```sh
-.venv/bin/hashprobe-mcp init --config ./my-mcp.json --name firmware \
+"$HOME/.local/bin/hashprobe-mcp" init --config ./my-mcp.json --name firmware \
   -- /absolute/path/to/sha256-program
 ```
 
-Agent tool calls choose a configured name such as `firmware`. Commands are set by the owner in the configuration, and reports are looked up by generated IDs.
+Agents select configured names such as `firmware`. Only the configuration owner chooses the commands to run. See the [sample configuration](examples/config.json) for more examples.
 
-## Available tools
+## Tools
 
-| Tool | What it does |
+| Tool | Purpose |
 | --- | --- |
-| `list_targets` | Lists configured programs and time limits |
-| `check` | Runs tests and returns counts, a report ID, and the first ten failures |
-| `get_failure` | Reads a saved failure, including expected and actual hashes |
-| `replay` | Tests saved failures against a chosen program and saves a new report |
+| `list_targets` | List configured programs and time limits |
+| `check` | Run tests; return counts, a report ID, and the first ten failures |
+| `get_failure` | Read a saved failure, its input, and expected and actual hashes |
+| `replay` | Repeat saved failures against a chosen program and save a new report |
 
-`check` accepts `target`, `seed`, `random_cases`, `max_bytes`, `timeout_ms`, and `fail_fast`. Defaults match the C command's 117 tests. Agents can reduce the configured time limit.
+Call `check` with a `target` name. Optional settings are `seed`, `random_cases`, `max_bytes`, `timeout_ms`, and `fail_fast`. The default run has 117 tests; agents can lower the owner's time limit.
 
-For `get_failure`, `index` selects a failure starting at zero. Large inputs are read in pieces: `offset` and `limit` count bytes. The default piece is 256 bytes; the maximum is 4096. Follow `next_offset` or `next_failure_index` to continue.
+Call `get_failure` with a `report_id`. `index` selects a failure, starting at zero. `offset` and `limit` read input bytes in pieces: 256 bytes by default, up to 4096. Use `next_offset` or `next_failure_index` to continue.
 
-For `replay`, provide `report_id` and `target`. Add `case_id` to repeat just one failure. Run `check` afterward to test the full set again.
+Call `replay` with `report_id` and `target`. Add `case_id` to repeat one failure. Run `check` afterward for the full set.
 
-A wrong hash produces a normal tool result with `status: "mismatch"`. It is evidence for the agent to investigate. Invalid arguments and unavailable reports produce MCP tool errors. A full success requires both `status: "pass"` and `counts.complete: true`.
+A wrong hash returns `status: "mismatch"`, a finding for the agent to investigate. Invalid arguments or unavailable reports return tool errors. A full success requires `status: "pass"` and `counts.complete: true`.
 
-## Limits and reports
+## Reports and limits
 
-By default, the server allows one run at a time, five seconds per test, and 120 seconds for a whole run. Cancellation or a disconnected client stops the active C runner, which stops its test program. The server keeps at most 100 reports and reserves space within a 256 MiB report budget. It asks the owner to remove or archive reports when storage is full.
+These settings can be changed in the configuration:
 
-These settings can be changed in the configuration: `timeout_ms`, `run_timeout_seconds`, `max_reports`, and `max_storage_mb`. Reports are stored under `report_dir`, which defaults to `reports` beside the configuration file.
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `report_dir` | `reports` | Report directory, relative to the configuration file |
+| `timeout_ms` | `5000` | Time allowed per test, in milliseconds |
+| `run_timeout_seconds` | `120` | Time allowed for a whole run |
+| `max_reports` | `100` | Maximum number of saved reports |
+| `max_storage_mb` | `256` | Report storage budget, in MiB |
 
-Configured programs run with your user permissions. Choose programs you trust. The server's limits do not provide an isolated environment for running unknown code.
+One run is allowed at a time per report directory. Cancellation or a disconnected client stops the run and its test program. When storage is full, archive or remove old reports before running more tests.
 
-## Development and sharing
+Configured programs run with your user permissions. Only configure programs you trust; Hashprobe does not isolate them from your computer.
 
-The MCP code is in [src](src), with a sample configuration in [examples/config.json](examples/config.json). Packaging files stay at the repository root so installation can include the C sources too.
+## Development and compatibility
 
-From the main Hashprobe folder:
+See the [development instructions](../README.md#development) for tests and memory checks. The C server is in [src](src), and its tool definitions are in [tools.json](tools.json).
 
-```sh
-make test-mcp PYTHON=.venv/bin/python
-```
+The server uses local stdio connections. It supports MCP `2026-07-28` and the initialization handshake used by `2025-11-25`, `2025-06-18`, `2025-03-26`, and `2024-11-05` clients. Requests are limited to 256 KiB; queued responses are limited to 1 MiB.
 
-The tests use the official MCP client to check discovery, tool calls, reports, replay, and error handling.
-
-After changing `mcp/src`, reinstall with `.venv/bin/python -m pip install .` before testing.
-
-To build an installable source archive and a wheel for your current operating system:
-
-```sh
-.venv/bin/python -m pip install build
-.venv/bin/python -m build
-```
-
-The files appear in `dist/`. A source archive can be shared with macOS and Linux users who have a C compiler. A wheel includes the compiled engine and must match the user's operating system and CPU. Linux wheels also need a compatible C library; use the source archive for wider compatibility. Install either file with `python -m pip install /path/to/file`.
-
-This server uses local stdio connections. It has not been deployed as a public HTTP service or published to a package registry.
+To share Hashprobe, provide the source and build instructions, or a binary for the recipient's operating system and CPU. Linux binaries also need a compatible C library. Each user creates their own configuration.

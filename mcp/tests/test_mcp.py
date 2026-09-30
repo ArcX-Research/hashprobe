@@ -1,6 +1,7 @@
-"""Run real MCP requests through the official client and the installed package."""
+"""Run real MCP requests through the official client and the native C server."""
 import asyncio
 import copy
+import fcntl
 import hashlib
 import json
 import os
@@ -14,11 +15,9 @@ import unittest
 from mcp import Client
 from mcp.client.stdio import StdioServerParameters
 
-from hashprobe.config import load_settings
-from hashprobe.reports import ReportStore
-
 ROOT = Path(__file__).resolve().parents[2]
 BUILD = Path(os.environ.get("HASHPROBE_TEST_BUILD", str(ROOT / "build"))).resolve()
+SERVER = str(BUILD / "hashprobe-mcp")
 FIXTURE = ROOT / "tests" / "target_fixture.py"
 
 
@@ -41,8 +40,8 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
     def client(self, *, mode="auto", settings=None):
         self.config.write_text(json.dumps(settings or self.settings))
         return Client(
-            StdioServerParameters(command=sys.executable,
-                                  args=["-m", "hashprobe", "--config", str(self.config)],
+            StdioServerParameters(command=SERVER,
+                                  args=["--config", str(self.config)],
                                   cwd=self.directory),
             mode=mode, read_timeout_seconds=20,
         )
@@ -94,7 +93,7 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual({item["name"] for item in targets["targets"]}, set(self.settings["targets"]))
             self.assertNotIn("command", targets["targets"][0])
 
-    async def test_full_run_uses_bundled_engine_from_another_directory(self):
+    async def test_full_run_uses_embedded_engine_from_another_directory(self):
         async with self.client() as client:
             result = await self.call(client, "check", {"target": "native"})
             self.assertEqual(result["status"], "pass")
@@ -110,9 +109,9 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result["counts"]["passed"], 85)
 
     async def test_target_keeps_its_python_environment(self):
-        # hashprobe is installed in this environment, not in its base Python.
+        # Resolving an interpreter symlink must not discard its virtual environment.
         self.settings["targets"]["python"] = {"command": [sys.executable, "-c",
-            "import hashprobe, hashlib, sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())"]}
+            f"import hashlib, sys; assert sys.prefix == {sys.prefix!r}; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())"]}
         async with self.client() as client:
             result = await self.call(client, "check", {"target": "python", "random_cases": 0})
             self.assertEqual(result["status"], "pass")
@@ -261,11 +260,24 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
                     running.cancel()
                     await asyncio.gather(running, return_exceptions=True)
 
+    async def test_report_directory_lock_and_disk_budget(self):
+        self.settings["max_storage_mb"] = 40
+        async with self.client() as client:
+            # Discovery waits until the native server has created its store.
+            await self.call(client, "list_targets", {})
+            with (self.directory / "reports" / ".lock").open("a") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                result = await self.call(client, "check", {"target": "native"}, error=True)
+                self.assertIn("another test run", result.content[0].text)
+            self.report("0" * 32).write_text("{}")
+            result = await self.call(client, "check", {"target": "native"}, error=True)
+            self.assertIn("storage limit", result.content[0].text)
+
     async def test_disconnect_stops_target_without_a_cancellation_message(self):
         marker = self.waiting_target()
         self.config.write_text(json.dumps(self.settings))
         process = await asyncio.create_subprocess_exec(
-            sys.executable, "-m", "hashprobe", "--config", str(self.config), cwd=self.directory,
+            SERVER, "--config", str(self.config), cwd=self.directory,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
         try:
@@ -304,57 +316,42 @@ class ConfigurationTests(unittest.TestCase):
         program.symlink_to(BUILD / "sha256-target")
         data = {"targets": {"test": {"command": ["./program"]}}}
         self.config.write_text(json.dumps(data))
-        loaded = load_settings(self.config)
-        self.assertEqual(loaded.targets["test"].command[0], str(program))
-        self.assertEqual(loaded.report_dir, str(self.directory / "reports"))
+        loaded = subprocess.run([SERVER, "client-config", "--config", str(self.config)], capture_output=True)
+        self.assertEqual(loaded.returncode, 0, loaded.stderr)
         for update in ({"timeout_ms": True}, {"max_reports": 0}, {"unknown_setting": 1}):
             changed = copy.deepcopy(data)
             changed.update(update)
             self.config.write_text(json.dumps(changed))
-            with self.assertRaises(ValueError):
-                load_settings(self.config)
+            invalid = subprocess.run([SERVER, "client-config", "--config", str(self.config)], capture_output=True)
+            self.assertEqual(invalid.returncode, 2, invalid.stdout)
         self.config.write_text('{"targets":{},"targets":{}}')
-        with self.assertRaises(ValueError):
-            load_settings(self.config)
+        invalid = subprocess.run([SERVER, "client-config", "--config", str(self.config)], capture_output=True)
+        self.assertEqual(invalid.returncode, 2, invalid.stdout)
 
     def test_init_prints_usable_client_settings_and_preserves_config(self):
         process = subprocess.run(
-            [sys.executable, "-m", "hashprobe", "init", "--config", str(self.config),
+            [SERVER, "init", "--config", str(self.config),
              "--name", "native", "--", str(BUILD / "sha256-target")],
             capture_output=True, text=True, cwd=self.directory,
         )
         self.assertEqual(process.returncode, 0, process.stderr)
         connection = json.loads(process.stdout)["mcpServers"]["hashprobe"]
-        self.assertEqual(connection["command"], sys.executable)
-        self.assertEqual(connection["args"], ["-m", "hashprobe", "--config", str(self.config)])
+        self.assertEqual(connection["command"], SERVER)
+        self.assertEqual(connection["args"], ["--config", str(self.config)])
         self.assertEqual(self.config.stat().st_mode & 0o777, 0o600)
-        printed = subprocess.run([sys.executable, "-m", "hashprobe", "--config", str(self.config),
+        printed = subprocess.run([SERVER, "--config", str(self.config),
                                   "client-config"], capture_output=True, text=True)
         self.assertEqual(printed.returncode, 0, printed.stderr)
         self.assertEqual(json.loads(printed.stdout), json.loads(process.stdout))
         before = self.config.read_bytes()
-        again = subprocess.run([sys.executable, "-m", "hashprobe", "init", "--config", str(self.config),
+        again = subprocess.run([SERVER, "init", "--config", str(self.config),
                                 "--", str(BUILD / "sha256-target")], capture_output=True)
         self.assertEqual(again.returncode, 2)
         self.assertEqual(self.config.read_bytes(), before)
 
-    def test_report_directory_lock_and_disk_budget(self):
-        self.config.write_text(json.dumps({"targets": {"test": {"command": [str(BUILD / "sha256-target")]}},
-                                           "max_storage_mb": 40}))
-        settings = load_settings(self.config)
-        first, second = ReportStore(settings), ReportStore(settings)
-        with first.reserve_run():
-            with self.assertRaises(ValueError):
-                with second.reserve_run():
-                    pass
-        first.path("0" * 32).write_text("{}")
-        with self.assertRaises(ValueError):
-            with first.reserve_run():
-                pass
-
     def test_init_rejects_missing_program_without_saving_config(self):
         process = subprocess.run(
-            [sys.executable, "-m", "hashprobe", "--config", str(self.config), "init", "--", "./missing"],
+            [SERVER, "--config", str(self.config), "init", "--", "./missing"],
             capture_output=True, text=True, cwd=self.directory,
         )
         self.assertEqual(process.returncode, 2)

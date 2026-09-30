@@ -1,0 +1,699 @@
+{
+  "tools": [
+    {
+      "name": "list_targets",
+      "description": "List the owner-configured programs and time limits available for testing.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "title": "list_targetsArguments",
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "$defs": {
+          "TargetInfo": {
+            "properties": {
+              "name": {
+                "title": "Name",
+                "type": "string"
+              },
+              "description": {
+                "title": "Description",
+                "type": "string"
+              },
+              "output": {
+                "enum": [
+                  "hex",
+                  "binary"
+                ],
+                "title": "Output",
+                "type": "string"
+              },
+              "version": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Version"
+              }
+            },
+            "required": [
+              "name",
+              "description",
+              "output",
+              "version"
+            ],
+            "title": "TargetInfo",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "targets": {
+            "items": {
+              "$ref": "#/$defs/TargetInfo"
+            },
+            "title": "Targets",
+            "type": "array"
+          },
+          "timeout_ms": {
+            "title": "Timeout Ms",
+            "type": "integer"
+          },
+          "run_timeout_seconds": {
+            "title": "Run Timeout Seconds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "targets",
+          "timeout_ms",
+          "run_timeout_seconds"
+        ],
+        "title": "TargetList",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "check",
+      "description": "Run SHA-256 tests on a configured target. Save a report and return counts and the first ten failures. The same seed and input settings reproduce a test set. timeout_ms can lower the owner's per-test limit. A mismatch is a result to investigate. Read exact failure bytes with get_failure; report_id refers to local storage.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "pattern": "^[a-zA-Z0-9_-]{1,64}$",
+            "title": "Target",
+            "type": "string"
+          },
+          "seed": {
+            "default": 0,
+            "maximum": 4294967295,
+            "minimum": 0,
+            "title": "Seed",
+            "type": "integer"
+          },
+          "random_cases": {
+            "default": 32,
+            "maximum": 256,
+            "minimum": 0,
+            "title": "Random Cases",
+            "type": "integer"
+          },
+          "max_bytes": {
+            "default": 4096,
+            "maximum": 65536,
+            "minimum": 1,
+            "title": "Max Bytes",
+            "type": "integer"
+          },
+          "timeout_ms": {
+            "anyOf": [
+              {
+                "maximum": 600000,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Timeout Ms"
+          },
+          "fail_fast": {
+            "default": false,
+            "title": "Fail Fast",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "target"
+        ],
+        "title": "checkArguments",
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "$defs": {
+          "Counts": {
+            "properties": {
+              "planned": {
+                "title": "Planned",
+                "type": "integer"
+              },
+              "executed": {
+                "title": "Executed",
+                "type": "integer"
+              },
+              "passed": {
+                "title": "Passed",
+                "type": "integer"
+              },
+              "mismatches": {
+                "title": "Mismatches",
+                "type": "integer"
+              },
+              "errors": {
+                "title": "Errors",
+                "type": "integer"
+              },
+              "skipped": {
+                "title": "Skipped",
+                "type": "integer"
+              },
+              "complete": {
+                "title": "Complete",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "planned",
+              "executed",
+              "passed",
+              "mismatches",
+              "errors",
+              "skipped",
+              "complete"
+            ],
+            "title": "Counts",
+            "type": "object"
+          },
+          "FailureBrief": {
+            "properties": {
+              "case_id": {
+                "title": "Case Id",
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "mismatch",
+                  "error"
+                ],
+                "title": "Status",
+                "type": "string"
+              },
+              "input_bytes": {
+                "title": "Input Bytes",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "case_id",
+              "status",
+              "input_bytes"
+            ],
+            "title": "FailureBrief",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "report_id": {
+            "title": "Report Id",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pass",
+              "mismatch",
+              "error",
+              "interrupted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "counts": {
+            "$ref": "#/$defs/Counts"
+          },
+          "failures": {
+            "items": {
+              "$ref": "#/$defs/FailureBrief"
+            },
+            "title": "Failures",
+            "type": "array"
+          },
+          "failure_count": {
+            "title": "Failure Count",
+            "type": "integer"
+          },
+          "next_failure_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Failure Index"
+          },
+          "target_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Version"
+          },
+          "executable_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executable Sha256"
+          },
+          "stopped_reason": {
+            "anyOf": [
+              {
+                "const": "run_timeout",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Stopped Reason"
+          }
+        },
+        "required": [
+          "report_id",
+          "target",
+          "status",
+          "counts",
+          "failures",
+          "failure_count",
+          "next_failure_index",
+          "target_version",
+          "executable_sha256"
+        ],
+        "title": "RunResult",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "get_failure",
+      "description": "Read one saved failure and a page of its input bytes as hex. index counts failed/errored cases from zero. offset and limit count bytes, not hex characters. Follow next_offset for more input and next_failure_index for another case. Reading a report never executes the command stored in it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "report_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Report Id",
+            "type": "string"
+          },
+          "index": {
+            "default": 0,
+            "maximum": 1023,
+            "minimum": 0,
+            "title": "Index",
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "maximum": 1048576,
+            "minimum": 0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "limit": {
+            "default": 256,
+            "maximum": 4096,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "report_id"
+        ],
+        "title": "get_failureArguments",
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "properties": {
+          "report_id": {
+            "title": "Report Id",
+            "type": "string"
+          },
+          "case_id": {
+            "title": "Case Id",
+            "type": "string"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "failure_count": {
+            "title": "Failure Count",
+            "type": "integer"
+          },
+          "next_failure_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Failure Index"
+          },
+          "status": {
+            "enum": [
+              "mismatch",
+              "error"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "input_bytes": {
+            "title": "Input Bytes",
+            "type": "integer"
+          },
+          "expected_hex": {
+            "title": "Expected Hex",
+            "type": "string"
+          },
+          "actual_hex": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual Hex"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "input_hex": {
+            "title": "Input Hex",
+            "type": "string"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "required": [
+          "report_id",
+          "case_id",
+          "index",
+          "failure_count",
+          "next_failure_index",
+          "status",
+          "input_bytes",
+          "expected_hex",
+          "actual_hex",
+          "offset",
+          "input_hex",
+          "next_offset",
+          "error"
+        ],
+        "title": "FailureResult",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "replay",
+      "description": "Retest saved failures using the named configured target and save a new report. Optionally select one case_id returned by get_failure. This tests only the saved failures; use check afterward for the full test set. The C engine verifies saved input bytes against their expected SHA-256 hashes first.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "report_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Report Id",
+            "type": "string"
+          },
+          "target": {
+            "pattern": "^[a-zA-Z0-9_-]{1,64}$",
+            "title": "Target",
+            "type": "string"
+          },
+          "case_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-zA-Z0-9_-]{1,79}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Case Id"
+          },
+          "timeout_ms": {
+            "anyOf": [
+              {
+                "maximum": 600000,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Timeout Ms"
+          },
+          "fail_fast": {
+            "default": false,
+            "title": "Fail Fast",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "report_id",
+          "target"
+        ],
+        "title": "replayArguments",
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "$defs": {
+          "Counts": {
+            "properties": {
+              "planned": {
+                "title": "Planned",
+                "type": "integer"
+              },
+              "executed": {
+                "title": "Executed",
+                "type": "integer"
+              },
+              "passed": {
+                "title": "Passed",
+                "type": "integer"
+              },
+              "mismatches": {
+                "title": "Mismatches",
+                "type": "integer"
+              },
+              "errors": {
+                "title": "Errors",
+                "type": "integer"
+              },
+              "skipped": {
+                "title": "Skipped",
+                "type": "integer"
+              },
+              "complete": {
+                "title": "Complete",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "planned",
+              "executed",
+              "passed",
+              "mismatches",
+              "errors",
+              "skipped",
+              "complete"
+            ],
+            "title": "Counts",
+            "type": "object"
+          },
+          "FailureBrief": {
+            "properties": {
+              "case_id": {
+                "title": "Case Id",
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "mismatch",
+                  "error"
+                ],
+                "title": "Status",
+                "type": "string"
+              },
+              "input_bytes": {
+                "title": "Input Bytes",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "case_id",
+              "status",
+              "input_bytes"
+            ],
+            "title": "FailureBrief",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "report_id": {
+            "title": "Report Id",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pass",
+              "mismatch",
+              "error",
+              "interrupted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "counts": {
+            "$ref": "#/$defs/Counts"
+          },
+          "failures": {
+            "items": {
+              "$ref": "#/$defs/FailureBrief"
+            },
+            "title": "Failures",
+            "type": "array"
+          },
+          "failure_count": {
+            "title": "Failure Count",
+            "type": "integer"
+          },
+          "next_failure_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Failure Index"
+          },
+          "target_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Version"
+          },
+          "executable_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executable Sha256"
+          },
+          "stopped_reason": {
+            "anyOf": [
+              {
+                "const": "run_timeout",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Stopped Reason"
+          }
+        },
+        "required": [
+          "report_id",
+          "target",
+          "status",
+          "counts",
+          "failures",
+          "failure_count",
+          "next_failure_index",
+          "target_version",
+          "executable_sha256"
+        ],
+        "title": "RunResult",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    }
+  ]
+}

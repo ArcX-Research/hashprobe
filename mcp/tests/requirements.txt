@@ -1,0 +1,2 @@
+# Development only: an independent client for testing the native C server.
+mcp==2.2.0

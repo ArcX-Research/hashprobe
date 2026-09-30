@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include "cJSON.h"
 
-#define HP_VERSION "0.1.0"
+#define HP_VERSION "0.2.0"
 #define HP_SUITE_VERSION "sha256-v1"
 #define HP_MAX_INPUT (1024u * 1024u)
 #define HP_MAX_TOTAL (16u * 1024u * 1024u)
@@ -80,6 +80,7 @@ void hp_json_add(cJSON *object, const char *key, cJSON *value);
 void hp_json_append(cJSON *array, cJSON *value);
 
 int hp_self_test(void);
+int hp_run(const hp_options *options);
 void hp_suite_build(hp_suite *suite, const hp_options *options);
 int hp_suite_replay(hp_suite *suite, const hp_options *options,
                     char source_digest[65], char *error, size_t error_size);

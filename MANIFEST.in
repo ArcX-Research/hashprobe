@@ -1,6 +1,0 @@
-include Makefile README.md PROVENANCE.md CHECKSUMS.sha256
-recursive-include src *.c *.h
-recursive-include vendor/cjson *.c *.h LICENSE
-recursive-include examples *.c
-recursive-include tests *.py
-recursive-include mcp *.py *.md *.json
