@@ -1,0 +1,38 @@
+# Build output and compiler artifacts
+/build/
+/build-*/
+/hashprobe
+/sha256-target
+/a.out
+*.o
+*.a
+*.so
+*.so.*
+*.dylib
+*.dSYM/
+/*.plist
+
+# Generated reports and coverage data
+/reports/
+*.gcda
+*.gcno
+*.gcov
+*.profraw
+*.profdata
+*.tmp.??????
+
+# Python development files
+__pycache__/
+*.py[cod]
+.venv/
+
+# Editor backups and macOS metadata
+*~
+*.swp
+*.swo
+.DS_Store
+._*
+
+# nit stuff
+.nit/
+gol-snapshots
