@@ -69,7 +69,8 @@ int mcp_arguments(const cJSON *schema, const cJSON *args, char *error) {
     for (const cJSON *item = args->child; item; item = item->next) {
         const cJSON *field = mcp_get(properties, item->string);
         if (!field || !scalar_matches(field, item)) {
-            snprintf(error, MCP_ERROR_SIZE, "invalid or unknown argument: %.100s", item->string); return -1;
+            const char *name = strlen(item->string) <= 100 ? item->string : "(name too long)";
+            snprintf(error, MCP_ERROR_SIZE, "invalid or unknown argument: %s", name); return -1;
         }
     }
     return 0;

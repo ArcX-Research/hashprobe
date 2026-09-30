@@ -154,6 +154,37 @@ class HashprobeTests(unittest.TestCase):
         self.assertEqual(again["summary"]["executed"], 1)
         self.assertEqual(again["results"][0]["input_hex"], failed[0]["input_hex"])
 
+    def test_c_demo_faults_are_repeatable_and_replayed(self):
+        faulty = [BUILD / "sha256-target", "--demo-bugs"]
+        source, report = self.check(faulty, options=("--random-cases", "35"), expected=1)
+        failed = [r for r in report["results"] if r["status"] == "mismatch"]
+        self.assertTrue(report["summary"]["complete"])
+        self.assertEqual(report["summary"]["executed"], 120)
+        self.assertGreater(len(failed), 3)
+        self.assertGreater(report["summary"]["passed"], len(failed))
+        kinds = set()
+        for item in failed:
+            data = bytes.fromhex(item["input_hex"])
+            expected = hashlib.sha256(data).digest()
+            actual = bytes.fromhex(item["actual_hex"])
+            self.assertEqual(item["expected_hex"], expected.hex())
+            variants = {
+                "truncated": hashlib.sha256(data[:-1]).digest(),
+                "bit-flip": bytes([expected[0] ^ 1]) + expected[1:],
+                "byte-order": b"".join(expected[i:i + 4][::-1] for i in range(0, 32, 4)),
+            }
+            matched = {name for name, digest in variants.items() if actual == digest}
+            self.assertTrue(matched, item["id"])
+            kinds.update(matched)
+        self.assertEqual(kinds, {"truncated", "bit-flip", "byte-order"})
+        again = self.replay(source, faulty, expected=1)
+        self.assertEqual(again["summary"]["mismatches"], len(failed))
+        self.assertEqual([(r["id"], r["actual_hex"]) for r in again["results"]],
+                         [(r["id"], r["actual_hex"]) for r in failed])
+        fixed = self.replay(source, [BUILD / "sha256-target"])
+        self.assertTrue(fixed["summary"]["complete"])
+        self.assertEqual(fixed["summary"]["passed"], len(failed))
+
     def test_fail_fast_is_incomplete(self):
         _, report = self.check(self.target("zero"), options=("--fail-fast",), expected=1)
         self.assertFalse(report["summary"]["complete"])
@@ -262,6 +293,11 @@ class HashprobeTests(unittest.TestCase):
         valid = json.dumps(original)
         variants += [valid + "{}", valid + "\x00x", valid[:-1],
                      valid.replace('"schema_version": 1', '"schema_version": 1, "schema_version": 1'),
+                     valid.replace('"schema_version": 1', '"schema_version": 01'),
+                     valid.replace('"schema_version": 1', '"schema_version": 1.'),
+                     valid.replace('"schema_version": 1', '"schema_version": 1.0000000000000001'),
+                     valid.replace('"input_bytes": 4', '"input_bytes": 4.0000000000000001'),
+                     "\x0b" + valid,
                      "[" * 40 + "0" + "]" * 40]
         marker = self.cwd / "must-not-start"
         for index, data in enumerate(variants):
@@ -317,6 +353,42 @@ class HashprobeTests(unittest.TestCase):
             if process.poll() is None:
                 process.kill()
                 process.communicate()
+
+    def test_timeout_and_interrupt_stop_a_target_that_changes_process_group(self):
+        for interrupt in (False, True):
+            with self.subTest(interrupt=interrupt):
+                marker, report_path = self.path("pid"), self.path()
+                process = subprocess.Popen(
+                    [str(BUILD / "hashprobe"), "check", "--timeout-ms", "500" if not interrupt else "5000",
+                     "--report", str(report_path), "--", *self.target("change-group", marker)],
+                    cwd=self.cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
+                )
+                pid = None
+                try:
+                    deadline = time.monotonic() + 5
+                    while time.monotonic() < deadline:
+                        if marker.exists() and marker.read_text().isdecimal():
+                            pid = int(marker.read_text())
+                            break
+                        time.sleep(0.01)
+                    self.assertIsNotNone(pid, "target did not start")
+                    if interrupt:
+                        process.send_signal(signal.SIGINT)
+                    stdout, stderr = process.communicate(timeout=3)
+                    self.assertEqual(process.returncode, 130 if interrupt else 2, stdout + stderr)
+                    result = json.loads(report_path.read_text())["results"][0]
+                    self.assertEqual(result["error"]["kind"], "interrupted" if interrupt else "timeout")
+                    with self.assertRaises(ProcessLookupError):
+                        os.kill(pid, 0)
+                finally:
+                    if pid is not None:
+                        try:
+                            os.kill(pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                    if process.poll() is None:
+                        process.kill()
+                    process.communicate()
 
 
 if __name__ == "__main__":

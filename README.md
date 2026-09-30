@@ -1,45 +1,51 @@
 # Hashprobe
 
-Hashprobe checks whether a program calculates SHA-256 hashes correctly. It saves failing inputs so you can repeat them after a fix. Use it to test changes to a crypto library, compiler, or firmware.
+Hashprobe checks whether a program calculates SHA-256 hashes correctly. It saves failing inputs so you can test a fix. Use it to test changes to crypto libraries, compilers, or firmware.
 
 The command-line tool and [MCP server for agents](mcp/README.md) are written in C.
 
 ## Get started
 
-You need macOS or Linux, a C11 compiler, Make, and awk. Python is only needed for development tests.
+You need macOS or Linux, a C11 compiler, Make, and awk. Python is only needed for development tests. Run these commands from the Hashprobe folder.
 
-From the Hashprobe folder:
+Build the programs:
 
 ```sh
 make
+```
+
+Create a folder for reports:
+
+```sh
 mkdir -p reports
+```
+
+Test the included example:
+
+```sh
 ./build/hashprobe check --report reports/example.json -- ./build/sha256-target
 ```
 
-You should see `117 passed`. The results are saved in `reports/example.json`.
+Expect `117 passed`. The results are saved in `reports/example.json`. Use a new report filename for each run; existing reports are never overwritten.
 
-Everything after `--` is the program to test and its arguments. Use a new report filename for each run; Hashprobe never overwrites an existing report.
-
-The included example shares Hashprobe's SHA-256 code. To test a separate implementation, use OpenSSL if it is installed:
+The example shares Hashprobe's SHA-256 code. To check a separate implementation, use OpenSSL if it is installed:
 
 ```sh
 ./build/hashprobe check --output binary --report reports/openssl.json \
   -- openssl dgst -sha256 -binary
 ```
 
-To use the built `hashprobe-mcp` executable with an agent, follow the [agent setup guide](mcp/README.md).
-
 ## Test your own program
 
-Hashprobe starts your program once per test. The program must:
+Everything after `--` is the program to test and its arguments. Hashprobe starts it once per test. The program must:
 
 1. Read all input bytes from standard input (`stdin`), including zero bytes.
-2. Write only the SHA-256 hash to standard output (`stdout`): 64 hex characters. Uppercase letters and whitespace around the hash are accepted.
-3. Exit with code `0` on success. Write diagnostics to standard error (`stderr`).
+2. Write the SHA-256 hash to standard output (`stdout`): 64 hex characters, with no other text. Uppercase letters and surrounding whitespace are accepted.
+3. Exit with code `0` on success. Send diagnostics to standard error (`stderr`).
 
-For programs that return 32 raw bytes instead of hex, use `--output binary`.
+For programs that return 32 raw digest bytes, use `--output binary`.
 
-Start with [examples/sha256_target.c](examples/sha256_target.c). To test a device, write an adapter that sends it the input and prints the returned hash.
+Start with [the C example](examples/sha256_target.c). To test a device, write a small program that sends it the input and prints the returned hash.
 
 ## Read the result
 
@@ -47,52 +53,60 @@ Start with [examples/sha256_target.c](examples/sha256_target.c). To test a devic
 | --- | --- | --- |
 | `pass` | All selected tests returned the correct hash | `0` |
 | `mismatch` | At least one test returned the wrong hash | `1` |
-| `error` | A test could not finish correctly, or its report could not be saved | `2` |
+| `error` | A test could not complete or its report could not be saved | `2` |
 | `interrupted` | The run was stopped | `130` or `143` |
 
-The JSON report records the program tested, each result, and the inputs for failed tests. `summary.complete` tells you whether every selected test was attempted without interruption. A full success requires both `status: "pass"` and `summary.complete: true`.
+The JSON report contains the tested command, each result, and the inputs for failed tests. A successful run has both `status: "pass"` and `summary.complete: true`.
 
-Hashprobe stops when a program crashes, exceeds the time limit, or returns unreadable output. The default limit is five seconds per test.
+Hashprobe stops if the program crashes, exceeds its time limit, or returns unreadable output. The default limit is five seconds per test.
 
 ## Repeat a failure
 
-The example has a deliberate bug that stops hashing at the first zero byte:
+Run the example with its intentional bug, which stops hashing at the first zero byte:
 
 ```sh
 ./build/hashprobe check --report reports/nul-bug.json \
   -- ./build/sha256-target --demo-bug-nul
 ```
 
-This reports mismatches and exits with code `1`. Repeat the saved failures with the bug turned off:
+This reports mismatches and exits with code `1`. Replay the saved failures with the bug disabled:
 
 ```sh
 ./build/hashprobe replay reports/nul-bug.json --report reports/fixed.json \
   -- ./build/sha256-target
 ```
 
-The saved tests should pass. Replay uses the program named after `--` and tests only saved failures. Run `check` again for the full set.
+The saved tests should pass. Replay tests only saved failures against the program after `--`. Run `check` again to test the full set.
 
-## Test coverage and options
+Use `--demo-bugs` for several repeatable faults: dropped input bytes, a flipped output bit, and reversed byte order.
+
+## Coverage and options
 
 The default run contains 117 tests:
 
 - **4 known answers**, from an empty input to one million `a` bytes.
 - **81 size and pattern tests**, including SHA-256 block and padding boundaries.
-- **32 generated inputs**, up to 4096 bytes each. The same settings and seed produce the same inputs.
+- **32 generated inputs**, up to 4096 bytes each.
 
-Before each run, Hashprobe checks its reference SHA-256 code against the four known answers. It uses that code to calculate expected hashes for the remaining tests.
+The same settings and seed produce the same inputs. Before each run, Hashprobe checks its reference implementation against the four known answers, then uses it to calculate expected hashes for the other tests.
 
 Place options before `--`:
 
 | Option | Purpose |
 | --- | --- |
 | `--seed 42` | Choose a repeatable set of generated inputs |
-| `--random-cases 64` | Run 64 generated tests instead of 32 |
+| `--random-cases 64` | Generate 64 inputs instead of 32 |
+| `--max-bytes 8192` | Set the size limit for generated inputs |
 | `--timeout-ms 10000` | Allow up to 10 seconds per test |
-| `--target-version firmware-v2` | Record the tested version |
+| `--target-version firmware-v2` | Label the tested build |
 | `--fail-fast` | Stop at the first wrong hash |
+| `--case boundary-0001-zero` | Replay one saved failure |
 
-Run `./build/hashprobe --help` for all options and limits.
+Show all options and limits:
+
+```sh
+./build/hashprobe --help
+```
 
 ## Development
 
@@ -102,18 +116,31 @@ Run the command-line tests with Python 3:
 make test
 ```
 
-To also test the MCP server and check for memory errors, use Python 3.10 or newer:
+The MCP tests need Python 3.10 or newer. Create a development environment:
 
 ```sh
 python3 -m venv .venv
+```
+
+Install the test client:
+
+```sh
 .venv/bin/python -m pip install -r mcp/tests/requirements.txt
-make test test-mcp PYTHON=.venv/bin/python
+```
+
+Run the MCP tests:
+
+```sh
+make test-mcp PYTHON=.venv/bin/python
+```
+
+Run both test suites with extra checks for memory errors and invalid C operations:
+
+```sh
 make sanitize PYTHON=.venv/bin/python
 ```
 
-The MCP tests use the official client to check tool calls, reports, replay, invalid requests, cancellation, and shutdown. After code changes, `make` rebuilds the executables.
-
-The C engine is in [src](src), and the MCP server is in [mcp/src](mcp/src). See [PROVENANCE.md](PROVENANCE.md) for code origins and included libraries.
+The shared C engine is in [src](src), and the MCP server is in [mcp/src](mcp/src). See [code origins](PROVENANCE.md) for the reference implementation and included libraries.
 
 ## Scope and license
 

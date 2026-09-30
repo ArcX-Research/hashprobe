@@ -1,4 +1,5 @@
 #include "mcp.h"
+#include "reference/sha256.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -56,7 +57,16 @@ static int valid_report(const cJSON *report) {
             counts[!strcmp(status, "pass") ? 0 : 1]++;
         } else if (!strcmp(status, "error")) counts[2]++;
         else return 0;
-        if (strcmp(status, "pass") && !mcp_hex(mcp_string(mcp_get(item, "input_hex")), (size_t)size * 2)) return 0;
+        if (strcmp(status, "pass")) {
+            const char *hex = mcp_string(mcp_get(item, "input_hex"));
+            if (!mcp_hex(hex, (size_t)size * 2)) return 0;
+            uint8_t *input = hp_alloc((size_t)size), digest[32], wanted[32];
+            hp_unhex(hex, input, (size_t)size);
+            hp_unhex(expected, wanted, sizeof wanted);
+            sha256(input, (size_t)size, digest);
+            free(input);
+            if (memcmp(digest, wanted, sizeof digest)) return 0;
+        }
         const cJSON *error = mcp_get(item, "error");
         if (error && !cJSON_IsNull(error) && !cJSON_IsObject(error)) return 0;
     }

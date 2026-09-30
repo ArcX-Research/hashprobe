@@ -279,42 +279,6 @@ static const char *string_field(const cJSON *object, const char *key) {
     return cJSON_IsString(value) ? value->valuestring : NULL;
 }
 
-/* Bound structural complexity before cJSON allocates nodes. Reject embedded
- * NULs (unsupported by cJSON strings) and literal control bytes in strings. */
-static int valid_json_input(const char *data, size_t length) {
-    int in_string = 0;
-    size_t structure = 0;
-    for (size_t i = 0; i < length; i++) {
-        unsigned char c = (unsigned char)data[i];
-        if (!c) return 0;
-        if (in_string && c == '\\') {
-            if (i + 1 >= length) return 0;
-            if (i + 5 < length && !memcmp(data + i + 1, "u0000", 5)) return 0;
-            i++;
-        } else if (c == '"') {
-            in_string = !in_string;
-            if (++structure > 100000) return 0;
-        } else if (in_string && c < 32) return 0;
-        else if (!in_string && (c == '[' || c == '{' || c == ',' || c == ':')) {
-            if (++structure > 100000) return 0;
-        }
-    }
-    return !in_string;
-}
-
-static int unique_keys(const cJSON *node) {
-    size_t count = 0;
-    for (const cJSON *child = node->child; child; child = child->next) {
-        if (cJSON_IsObject(node)) {
-            if (++count > 64) return 0;
-            for (const cJSON *previous = node->child; previous != child; previous = previous->next)
-                if (!strcmp(previous->string, child->string)) return 0;
-        }
-        if (!unique_keys(child)) return 0;
-    }
-    return 1;
-}
-
 int hp_suite_replay(hp_suite *suite, const hp_options *options,
                     char source_digest[65], char *error, size_t error_size) {
     size_t length;
@@ -325,15 +289,14 @@ int hp_suite_replay(hp_suite *suite, const hp_options *options,
     }
     cJSON *report = NULL;
     const char *reason = "invalid JSON report";
-    if (!valid_json_input(data, length)) goto invalid;
-    report = cJSON_ParseWithLengthOpts(data, length + 1, NULL, 1);
-    if (!report || !cJSON_IsObject(report) || !unique_keys(report)) goto invalid;
+    report = hp_json_parse(data, length);
+    if (!report || !cJSON_IsObject(report)) goto invalid;
     const cJSON *version = cJSON_GetObjectItemCaseSensitive(report, "schema_version");
     const char *algorithm = string_field(report, "algorithm");
     const cJSON *tool = cJSON_GetObjectItemCaseSensitive(report, "tool");
     const char *tool_name = string_field(tool, "name");
     reason = "unsupported report schema, tool, or algorithm";
-    if (!cJSON_IsNumber(version) || version->valuedouble != 1 || !algorithm || strcmp(algorithm, "sha256") ||
+    if (!hp_json_integer(version, 1, 1, NULL) || !algorithm || strcmp(algorithm, "sha256") ||
         !tool_name || strcmp(tool_name, "hashprobe")) goto invalid;
     const cJSON *results = cJSON_GetObjectItemCaseSensitive(report, "results");
     reason = "invalid or oversized results array";
@@ -347,17 +310,16 @@ int hp_suite_replay(hp_suite *suite, const hp_options *options,
         const char *expected = string_field(item, "expected_hex");
         const cJSON *bytes = cJSON_GetObjectItemCaseSensitive(item, "input_bytes");
         uint8_t expected_bytes[32];
+        uint64_t input_size;
         reason = "invalid case fields in source report";
         if (!cJSON_IsObject(item) || !id || !safe_id(id, sizeof suite->cases[0].id) ||
             !category || !safe_id(category, sizeof suite->cases[0].category) || !status ||
             (strcmp(status, "pass") && strcmp(status, "mismatch") && strcmp(status, "error")) ||
-            !expected || hp_unhex(expected, expected_bytes, 32) || !cJSON_IsNumber(bytes) ||
-            !(bytes->valuedouble >= 0 && bytes->valuedouble <= HP_MAX_INPUT) ||
-            bytes->valuedouble != (double)(size_t)bytes->valuedouble) goto invalid;
+            !expected || hp_unhex(expected, expected_bytes, 32) || !hp_json_integer(bytes, 0, HP_MAX_INPUT, &input_size)) goto invalid;
         reason = "duplicate case ID in source report";
         for (size_t i = 0; i < id_count; i++) if (!strcmp(ids[i], id)) goto invalid;
         ids[id_count++] = id;
-        size_t input_length = (size_t)bytes->valuedouble;
+        size_t input_length = (size_t)input_size;
         reason = "source report exceeds 16 MiB of test input";
         if (input_length > HP_MAX_TOTAL - total) goto invalid;
         total += input_length;

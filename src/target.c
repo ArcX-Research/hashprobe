@@ -151,6 +151,9 @@ cleanup:
     if (pid > 0) {
         /* Also stop children left behind in this process group. */
         (void)kill(-pid, SIGKILL);
+        /* The target may have joined another group. Always stop the direct
+         * child too, before the blocking wait; it has not been reaped yet. */
+        (void)kill(pid, SIGKILL);
         pid_t waited;
         do { waited = waitpid(pid, &status, 0); } while (waited < 0 && errno == EINTR);
         if (waited < 0 && !result->error_kind) target_error(result, "io", strerror(errno));

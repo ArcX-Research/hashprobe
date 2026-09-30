@@ -48,6 +48,10 @@ elif mode == "touch":
 elif mode == "wait":
     Path(sys.argv[2]).write_text("started")
     time.sleep(10)
+elif mode == "change-group":
+    os.setpgid(0, os.getpgid(os.getppid()))
+    Path(sys.argv[2]).write_text(str(os.getpid()))
+    time.sleep(30)
 elif mode == "descendant":
     subprocess.Popen([
         sys.executable, "-c",

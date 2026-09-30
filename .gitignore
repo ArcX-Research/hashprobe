@@ -39,3 +39,6 @@ __pycache__/
 # nit stuff
 .nit/
 gol-snapshots
+
+# notebooks
+*.nb

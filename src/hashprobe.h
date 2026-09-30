@@ -78,6 +78,8 @@ double hp_now_ms(void);
 int hp_cloexec(int fd);
 void hp_json_add(cJSON *object, const char *key, cJSON *value);
 void hp_json_append(cJSON *array, cJSON *value);
+cJSON *hp_json_parse(const char *data, size_t length);
+int hp_json_integer(const cJSON *value, uint64_t minimum, uint64_t maximum, uint64_t *out);
 
 int hp_self_test(void);
 int hp_run(const hp_options *options);

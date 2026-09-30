@@ -237,6 +237,18 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
             await self.call(client, "check", {"target": "native"}, error=True)
             self.assertEqual(self.report(result["report_id"]).read_bytes(), original)
 
+    async def test_saved_failure_input_must_match_its_expected_hash(self):
+        async with self.client() as client:
+            result = await self.call(client, "check", {"target": "bug", "fail_fast": True})
+            report_id = result["report_id"]
+            path = self.report(report_id)
+            report = json.loads(path.read_text())
+            report["results"][-1]["input_hex"] = "ff"
+            path.write_text(json.dumps(report))
+            await self.call(client, "get_failure", {"report_id": report_id}, error=True)
+            await self.call(client, "replay", {"report_id": report_id, "target": "native"}, error=True)
+            self.assertEqual(len(list(path.parent.glob("*.json"))), 1)
+
     async def test_requests_remain_responsive_and_cancellation_stops_target(self):
         marker = self.waiting_target()
         async with self.client() as client:
@@ -357,6 +369,15 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(process.returncode, 2)
         self.assertIn("target program is not executable", process.stderr)
         self.assertFalse(self.config.exists())
+
+    def test_paths_preserve_parent_traversal_after_a_symlink(self):
+        real = self.directory / "real"
+        (real / "child").mkdir(parents=True)
+        (real / "program").symlink_to(BUILD / "sha256-target")
+        (self.directory / "alias").symlink_to(real / "child", target_is_directory=True)
+        self.config.write_text(json.dumps({"targets": {"native": {"command": ["alias/../program"]}}}))
+        process = subprocess.run([SERVER, "client-config", "--config", str(self.config)], capture_output=True)
+        self.assertEqual(process.returncode, 0, process.stderr)
 
 
 if __name__ == "__main__":

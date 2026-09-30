@@ -9,7 +9,7 @@ PREFIX ?= /usr/local
 WARNINGS = -std=c11 -Wall -Wextra -Wpedantic -Wformat=2 -Wshadow
 DEFINES = -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700 -D_DARWIN_C_SOURCE -DCJSON_NESTING_LIMIT=32
 INCLUDES = -Isrc -Ivendor/cjson
-CORE_SOURCES = src/run.c src/suite.c src/target.c src/report.c src/util.c \
+CORE_SOURCES = src/run.c src/suite.c src/target.c src/report.c src/util.c src/json.c \
           src/reference/sha256.c vendor/cjson/cJSON.c
 SOURCES = src/main.c $(CORE_SOURCES)
 MCP_SOURCES = mcp/src/main.c mcp/src/config.c mcp/src/util.c mcp/src/reports.c \

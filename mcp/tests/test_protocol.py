@@ -152,6 +152,12 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.receive())["error"]["code"], -32600)
         self.assertIn("result", await self.call("ping"))
 
+    async def test_long_unicode_argument_name_keeps_error_reply_valid(self):
+        for name in ("x" * 99 + "🧪", "x" * 99 + "é", "🧪" * 100):
+            response = await self.call("tools/call", {"name": "list_targets", "arguments": {name: True}})
+            self.assertTrue(response["result"]["isError"])
+        self.assertIn("result", await self.call("ping"))
+
     async def test_notifications_never_run_tools_or_produce_responses(self):
         for method, params in (("notifications/unknown", {}),
                                ("tools/call", {"name": "check", "arguments": {"target": "native"}})):
