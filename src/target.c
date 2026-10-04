@@ -1,7 +1,9 @@
 #include "hashprobe.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <poll.h>
 #include <spawn.h>
 #include <stdlib.h>
@@ -23,6 +25,28 @@ static int capture_pipe(int fds[2]) {
     if (hp_cloexec(fds[0]) || hp_cloexec(fds[1])) return -1;
     int flags = fcntl(fds[0], F_GETFL);
     return flags < 0 ? -1 : fcntl(fds[0], F_SETFL, flags | O_NONBLOCK);
+}
+
+static int close_inherited_descriptors(posix_spawn_file_actions_t *actions) {
+    /* Enumerate open handles: some may be above a lowered RLIMIT_NOFILE. */
+    DIR *directory = opendir("/dev/fd");
+    if (!directory) return errno;
+    int error = 0;
+    for (;;) {
+        errno = 0;
+        struct dirent *entry = readdir(directory);
+        if (!entry) {
+            error = errno;
+            break;
+        }
+        char *end;
+        long descriptor = strtol(entry->d_name, &end, 10);
+        if (*end || descriptor < 3 || descriptor > INT_MAX || descriptor == dirfd(directory)) continue;
+        error = posix_spawn_file_actions_addclose(actions, (int)descriptor);
+        if (error) break;
+    }
+    if (closedir(directory) != 0 && !error) error = errno;
+    return error;
 }
 
 static int ascii_space(uint8_t ch) {
@@ -64,7 +88,9 @@ void hp_target_run(const hp_case *test, const hp_options *options, hp_result *re
     if (rc) goto spawn_error;
     rc = posix_spawn_file_actions_adddup2(&actions, pipes[1][1], STDERR_FILENO);
     if (rc) goto spawn_error;
-    /* All original descriptors are close-on-exec; only the dup2 endpoints survive. */
+    /* Close inherited handles in the child, after duplicating its standard I/O. */
+    rc = close_inherited_descriptors(&actions);
+    if (rc) goto spawn_error;
     sigset_t defaults, mask;
     sigemptyset(&defaults);
     sigaddset(&defaults, SIGINT);

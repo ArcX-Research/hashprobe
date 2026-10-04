@@ -1,5 +1,6 @@
 """Exercise the native stdio protocol directly; only Python's standard library is used."""
 import asyncio
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -27,12 +28,13 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.process = None
         await self.start()
 
-    async def start(self):
+    async def start(self, *, pass_fds=()):
         self.config.write_text(json.dumps(self.settings))
         self.process = await asyncio.create_subprocess_exec(
             str(self.server), "--config", str(self.config), cwd=self.directory,
             env={**os.environ, "PATH": ""}, stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            pass_fds=pass_fds,
         )
 
     async def stop(self):
@@ -87,6 +89,62 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
         result = (await self.call("tools/call", {"name": "check", "arguments": {"target": "native"}}))["result"]
         self.assertFalse(result["isError"])
         self.assertEqual(result["structuredContent"]["counts"]["passed"], 117)
+
+    async def test_discovery_response_is_flushed_when_input_closes(self):
+        for request_id in range(8):
+            await self.send(self.request("tools/list", request_id=request_id))
+        self.process.stdin.close()
+        stdout, stderr = await asyncio.wait_for(self.process.communicate(), 5)
+        self.assertEqual(self.process.returncode, 0, stderr.decode(errors="replace"))
+        responses = [json.loads(line) for line in stdout.splitlines()]
+        self.assertEqual([response["id"] for response in responses], list(range(8)))
+        for response in responses:
+            self.assertEqual(len(response["result"]["tools"]), 4)
+
+    async def test_shutdown_is_bounded_when_client_stops_reading(self):
+        await self.stop()
+        read_fd, write_fd = os.pipe()
+        process = None
+        try:
+            # Keep the read end open without consuming output or buffering it in asyncio.
+            process = await asyncio.create_subprocess_exec(
+                str(self.server), "--config", str(self.config), cwd=self.directory,
+                stdin=asyncio.subprocess.PIPE, stdout=write_fd, stderr=asyncio.subprocess.PIPE,
+            )
+            for request_id in range(32):
+                packet = self.request("tools/list", request_id=request_id)
+                process.stdin.write(json.dumps(packet).encode() + b"\n")
+            await process.stdin.drain()
+            process.stdin.close()
+            await asyncio.wait_for(process.wait(), 3)
+            self.assertEqual(process.returncode, 2)
+            self.assertNotIn(b"Sanitizer", await process.stderr.read())
+        finally:
+            if process is not None and process.returncode is None:
+                process.kill()
+                await process.wait()
+            os.close(read_fd)
+            os.close(write_fd)
+
+    async def test_target_cannot_use_client_file_descriptors(self):
+        await self.stop()
+        with tempfile.TemporaryFile() as private:
+            descriptor = fcntl.fcntl(private.fileno(), fcntl.F_DUPFD, 3)
+            try:
+                self.settings["targets"]["probe"] = {
+                    "command": [sys.executable, str(ROOT / "tests/target_fixture.py"),
+                                "private-fd", str(descriptor)]}
+                await self.start(pass_fds=(descriptor,))
+                result = (await self.call("tools/call", {
+                    "name": "check", "arguments": {"target": "probe", "random_cases": 0}
+                }))["result"]
+                self.assertFalse(result["isError"])
+                self.assertEqual(result["structuredContent"]["status"], "pass")
+                self.assertEqual(result["structuredContent"]["counts"]["passed"], 85)
+                os.fstat(descriptor)
+            finally:
+                await self.stop()
+                os.close(descriptor)
 
     async def test_legacy_versions_and_initialization_order(self):
         for version in ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"):

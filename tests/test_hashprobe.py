@@ -1,10 +1,12 @@
 """Exercise the compiled C CLI, real targets, and saved reports end to end."""
 import argparse
 import copy
+import fcntl
 import hashlib
 import json
 import os
 from pathlib import Path
+import resource
 import shutil
 import signal
 import subprocess
@@ -240,6 +242,33 @@ class HashprobeTests(unittest.TestCase):
         literal = "literal; $(touch forbidden) `touch forbidden`"
         self.replay(source, [spaced, FIXTURE, "argument", literal])
         self.assertFalse((self.cwd / "forbidden").exists())
+
+    def test_target_cannot_use_inherited_file_descriptors(self):
+        source, _ = self.source()
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        if soft != resource.RLIM_INFINITY and soft <= 64:
+            self.skipTest("test needs a descriptor above 64")
+        with tempfile.TemporaryFile() as private:
+            descriptor = fcntl.fcntl(private.fileno(), fcntl.F_DUPFD, 64)
+            try:
+                for lower_limit in (False, True):
+                    with self.subTest(lower_limit=lower_limit):
+                        def prepare():
+                            if lower_limit:
+                                resource.setrlimit(resource.RLIMIT_NOFILE, (32, hard))
+
+                        process = subprocess.run(
+                            [str(BUILD / "hashprobe"), "replay", str(source),
+                             "--report", str(self.path()), "--", *self.target("private-fd", descriptor)],
+                            cwd=self.cwd, capture_output=True, text=True, timeout=10,
+                            pass_fds=(descriptor,), preexec_fn=prepare,
+                        )
+                        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+                        self.assertNotIn("Sanitizer", process.stderr)
+                        self.assertNotIn("runtime error:", process.stderr)
+                        os.fstat(descriptor)  # The parent's handle must remain open.
+            finally:
+                os.close(descriptor)
 
     def test_reports_are_not_overwritten_and_parent_must_exist(self):
         source, _ = self.source()

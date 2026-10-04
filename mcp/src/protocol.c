@@ -236,6 +236,40 @@ static void stop_handler(int signum) {
     stopped = signum;
 }
 
+static int write_pending_output(mcp_server *server) {
+    ssize_t sent = write(STDOUT_FILENO, server->output + server->output_sent,
+                         server->output_used - server->output_sent);
+    if (sent > 0) {
+        server->output_sent += (size_t)sent;
+    } else if (sent < 0 && errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) {
+        return -1;
+    }
+    if (server->output_sent == server->output_used) {
+        server->output_sent = 0;
+        server->output_used = 0;
+    }
+    return 0;
+}
+
+static int flush_before_exit(mcp_server *server) {
+    /* A client may close input and still read its replies. Do not wait forever
+     * if it stops reading as well. Standard output remains nonblocking here. */
+    double deadline = hp_now_ms() + 250;
+    while (server->output_used > server->output_sent && !stopped) {
+        double remaining = deadline - hp_now_ms();
+        if (remaining <= 0) return -1;
+        struct pollfd output = {STDOUT_FILENO, POLLOUT, 0};
+        int ready = poll(&output, 1, (int)remaining + 1);
+        if (ready < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (output.revents & (POLLERR | POLLHUP | POLLNVAL)) return -1;
+        if ((output.revents & POLLOUT) && write_pending_output(server)) return -1;
+    }
+    return 0;
+}
+
 int mcp_serve(mcp_server *server) {
     struct sigaction action = {0};
     action.sa_handler = stop_handler;
@@ -243,7 +277,8 @@ int mcp_serve(mcp_server *server) {
     if (sigaction(SIGTERM, &action, NULL) || sigaction(SIGINT, &action, NULL)) return 2;
     action.sa_handler = SIG_IGN;
     if (sigaction(SIGPIPE, &action, NULL)) return 2;
-    int input_flags = fcntl(STDIN_FILENO, F_GETFL), output_flags = fcntl(STDOUT_FILENO, F_GETFL);
+    int input_flags = fcntl(STDIN_FILENO, F_GETFL);
+    int output_flags = fcntl(STDOUT_FILENO, F_GETFL);
     if (input_flags < 0 || output_flags < 0 || fcntl(STDIN_FILENO, F_SETFL, input_flags | O_NONBLOCK) ||
         fcntl(STDOUT_FILENO, F_SETFL, output_flags | O_NONBLOCK)) return 2;
     char *input = hp_alloc(MCP_MESSAGE_LIMIT + 1);
@@ -258,14 +293,18 @@ int mcp_serve(mcp_server *server) {
             {server->job.pid ? server->job.pipe_fd : -1, POLLIN, 0}
         };
         int ready = poll(fds, 3, server->job.pid ? 25 : -1);
-        if (ready < 0) { if (errno == EINTR) continue; failed = 1; break; }
-        if (fds[1].revents & (POLLERR | POLLHUP | POLLNVAL)) { failed = 1; break; }
-        if (fds[1].revents & POLLOUT) {
-            ssize_t sent = write(STDOUT_FILENO, server->output + server->output_sent,
-                                 server->output_used - server->output_sent);
-            if (sent > 0) server->output_sent += (size_t)sent;
-            else if (sent < 0 && errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) { failed = 1; break; }
-            if (server->output_sent == server->output_used) server->output_sent = server->output_used = 0;
+        if (ready < 0) {
+            if (errno == EINTR) continue;
+            failed = 1;
+            break;
+        }
+        if (fds[1].revents & (POLLERR | POLLHUP | POLLNVAL)) {
+            failed = 1;
+            break;
+        }
+        if ((fds[1].revents & POLLOUT) && write_pending_output(server)) {
+            failed = 1;
+            break;
         }
         if (fds[0].revents & (POLLIN | POLLHUP | POLLERR | POLLNVAL)) {
             /* Bound work per iteration so input flooding cannot starve a
@@ -274,15 +313,24 @@ int mcp_serve(mcp_server *server) {
                 char chunk[4096];
                 ssize_t got = read(STDIN_FILENO, chunk, sizeof chunk);
                 if (got < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) break;
-                if (got <= 0) { server->closing = 1; break; }
+                if (got <= 0) {
+                    failed = got < 0;
+                    server->closing = 1;
+                    break;
+                }
                 for (ssize_t i = 0; i < got && !server->closing; i++) {
                     if (chunk[i] == '\n') {
-                        if (!dropping && used) { input[used] = 0; mcp_dispatch(server, input, used); }
-                        used = 0; dropping = 0;
+                        if (!dropping && used) {
+                            input[used] = 0;
+                            mcp_dispatch(server, input, used);
+                        }
+                        used = 0;
+                        dropping = 0;
                     } else if (!dropping) {
                         if (used == MCP_MESSAGE_LIMIT) {
                             rpc_error(server, NULL, -32600, "message exceeds 256 KiB", NULL);
-                            dropping = 1; used = 0;
+                            dropping = 1;
+                            used = 0;
                         } else input[used++] = chunk[i];
                     }
                 }
@@ -290,8 +338,11 @@ int mcp_serve(mcp_server *server) {
         }
     }
     mcp_job_cleanup(server);
+    if (!failed && !stopped && flush_before_exit(server)) failed = 1;
     fcntl(STDIN_FILENO, F_SETFL, input_flags);
     fcntl(STDOUT_FILENO, F_SETFL, output_flags);
-    free(input); free(server->output); server->output = NULL;
+    free(input);
+    free(server->output);
+    server->output = NULL;
     return failed ? 2 : 0;
 }

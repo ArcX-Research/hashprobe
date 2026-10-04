@@ -42,6 +42,13 @@ elif mode == "stderr-flood":
 elif mode == "argument":
     assert sys.argv[2] == "literal; $(touch forbidden) `touch forbidden`"
     print(digest.hex())
+elif mode == "private-fd":
+    try:
+        os.fstat(int(sys.argv[2]))
+    except OSError:
+        print(digest.hex())
+    else:
+        raise RuntimeError("target inherited a private file descriptor")
 elif mode == "touch":
     Path(sys.argv[2]).write_text("started")
     print(digest.hex())
