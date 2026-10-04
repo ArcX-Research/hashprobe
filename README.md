@@ -6,7 +6,9 @@
 [![MIT license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![M8ven Score](https://m8ven.ai/badge/mcp/arcx-research-hashprobe-d02ezj)](https://m8ven.ai/mcp/arcx-research-hashprobe-d02ezj?s=readme)
 
-Hashprobe checks SHA-256 implementations and saves failing inputs so you can reproduce bugs and test fixes. Written in C, it runs locally from the terminal or as an MCP server for agents.
+Hashprobe checks whether a program calculates SHA-256 hashes correctly. It compares results with a reference implementation and saves failing inputs so you can reproduce bugs and test fixes. Use it to test changes to cryptographic libraries, compiler builds, or firmware.
+
+Written in C, Hashprobe runs on your computer from the terminal or as a local MCP server for AI agents. Agents can test configured programs, inspect failures, and rerun tests after a fix.
 
 [![Hashprobe detects incorrect SHA-256 hashes and verifies the fix](docs/assets/hashprobe.gif)](docs/assets/hashprobe.mp4)
 
@@ -30,11 +32,11 @@ Build and install for your user:
 make
 ```
 
+`make` creates `build/`. Installation copies the commands to `~/.local/bin`.
+
 ```sh
 make install PREFIX="$HOME/.local"
 ```
-
-`make` creates `build/`. Installation copies the commands to `~/.local/bin`.
 
 Add this line to `~/.zshrc` or `~/.bashrc` and run it in your current terminal:
 
