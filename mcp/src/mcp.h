@@ -68,6 +68,7 @@ int mcp_config_load(mcp_config *config, const char *path, char *error);
 void mcp_config_free(mcp_config *config);
 int mcp_initialize(const char *path, const char *name, const char *output, char **command, char *error);
 void mcp_client_config(const char *program, const char *path);
+int mcp_setup(mcp_config *config, const char *client, const char *program, const char *path, char *error);
 
 int mcp_report_id(const char *id);
 char *mcp_report_path(const mcp_config *config, const char *id);

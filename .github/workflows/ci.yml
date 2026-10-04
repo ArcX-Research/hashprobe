@@ -69,10 +69,7 @@ jobs:
       - name: Build and test the CLI and MCP server
         run: make CC="$TEST_CC" PYTHON=python test test-mcp
       - name: Check installation
-        run: |
-          make CC="$TEST_CC" install DESTDIR="$RUNNER_TEMP/install" PREFIX=/usr/local
-          "$RUNNER_TEMP/install/usr/local/bin/hashprobe" self-test
-          "$RUNNER_TEMP/install/usr/local/bin/hashprobe-mcp" --version
+        run: make CC="$TEST_CC" PYTHON=python test-install
       - name: Package and check the extracted programs
         if: matrix.package != ''
         env:

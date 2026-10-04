@@ -8,56 +8,124 @@
 
 Hashprobe checks whether a program calculates SHA-256 hashes correctly. It saves failing inputs so you can test a fix. Use it to test changes to crypto libraries, compilers, or firmware.
 
-The command-line tool and [MCP server for agents](mcp/README.md) are written in C.
+Hashprobe is written in C and runs on your computer. Use `hashprobe` from a terminal, or connect `hashprobe-mcp` to an agent app. The app starts the local MCP server, which runs your configured programs and saves reports on the same computer.
 
-Agents use `list_targets` to find configured programs, `check` to test them, `get_failure` to inspect a failing input, and `replay` to test saved failures after a fix.
+For agents, the process is **install → connect your agent app → add a program → run checks**. Install once for your user and connect each app you use; add a named program for each implementation you want to test.
+
+The [browser lab](https://hashprobe.dilate.co.ke/) provides demos and a report viewer. To use the local MCP, configure the installed command as shown below. You do not need to host a server or provide a website URL.
 
 [![Hashprobe detects incorrect SHA-256 hashes and verifies the fix](docs/assets/hashprobe.gif)](docs/assets/hashprobe.mp4)
 
 [Watch the video (15 seconds)](docs/assets/hashprobe.mp4): recorded tests with intentional bugs, followed by a verified fix.
 
-## Get started
+## Install
 
-To use a prebuilt release, follow the [binary installation guide](docs/BINARIES.md). To build from source, continue below.
+Install on the computer where your agent app and the programs you want to test run. Choose a [prebuilt release](docs/BINARIES.md) or build from source below. Both give you the same two commands.
 
-You need macOS or Linux, a C11 compiler, Make, and awk. Python is only needed for development tests. Run these commands from the Hashprobe folder.
+You need macOS or Linux, Git, a C11 compiler, Make, and awk. Python is only needed for development tests.
 
-Build the programs:
+Clone the repository:
+
+```sh
+git clone https://github.com/ArcX-Research/hashprobe.git
+```
+
+Open the project folder:
+
+```sh
+cd hashprobe
+```
+
+Build the programs in `build/`:
 
 ```sh
 make
 ```
 
-Create a folder for reports:
+Install both commands in `~/.local/bin` for your user:
+
+```sh
+make install PREFIX="$HOME/.local"
+```
+
+This makes the installed commands available across projects. Plain `make install` uses `/usr/local/bin` instead and may require administrator permissions.
+
+Add this line to `~/.zshrc` (Zsh) or `~/.bashrc` (Bash), and run it in your current terminal:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+You can now use `hashprobe` and `hashprobe-mcp` from any project. Check the installation:
+
+```sh
+hashprobe self-test
+```
+
+## Connect an agent
+
+This step connects an installed MCP server to an agent app. It is required for agents to discover the tools; installing the binaries alone does not connect them.
+
+For the first-run OpenSSL example, install OpenSSL and your chosen app's CLI. Run the matching setup command once for each app you use.
+
+For Codex:
+
+```sh
+hashprobe-mcp setup --client codex
+```
+
+For Claude Code:
+
+```sh
+hashprobe-mcp setup --client claude
+```
+
+Setup saves the installed server's path in the app's MCP settings. It also creates `~/.config/hashprobe/mcp.json` with an `openssl` target if that file is missing. Existing Hashprobe settings are kept. A **target** is a named program Hashprobe can test.
+
+Restart the app to load the tools. The app starts and stops the local server automatically; you do not need to leave a server running in another terminal.
+
+With the default configuration, ask the agent:
+
+> Use Hashprobe to list the configured targets, check the openssl target, and show the result.
+
+Expect `117` passed tests and a complete report. This checks OpenSSL. To test your own code, [add its program as a target](mcp/README.md#add-a-program).
+
+For Cursor or another app, follow the [manual connection steps](mcp/README.md#other-clients).
+
+## Use the terminal
+
+You can also run checks directly with `hashprobe`; this does not require MCP registration. From any project, create a report folder:
 
 ```sh
 mkdir -p reports
 ```
 
-Test the included example:
+Test OpenSSL, if it is installed:
 
 ```sh
-./build/hashprobe check --report reports/example.json -- ./build/sha256-target
-```
-
-Expect `117 passed`. The results are saved in `reports/example.json`. Use a new report filename for each run; existing reports are never overwritten.
-
-The example shares Hashprobe's SHA-256 code. To check a separate implementation, use OpenSSL if it is installed:
-
-```sh
-./build/hashprobe check --output binary --report reports/openssl.json \
+hashprobe check --output binary --report reports/openssl.json \
   -- openssl dgst -sha256 -binary
 ```
 
+Expect `117 passed`. Use a new report filename for each run; existing reports are never overwritten.
+
 ## Test your own program
 
-Everything after `--` is the program to test and its arguments. Hashprobe starts it once per test. The program must:
+A target is an executable or wrapper script that calculates SHA-256. Point Hashprobe to that program, not the project directory. The program must:
 
 1. Read all input bytes from standard input (`stdin`), including zero bytes.
 2. Write the SHA-256 hash to standard output (`stdout`): 64 hex characters, with no other text. Uppercase letters and surrounding whitespace are accepted.
 3. Exit with code `0` on success. Send diagnostics to standard error (`stderr`).
 
 For programs that return 32 raw digest bytes, use `--output binary`.
+
+For agents, [add a target](mcp/README.md#add-a-program) in the Hashprobe configuration and restart the agent app. From a terminal, put the program and its arguments after `--`:
+
+```sh
+hashprobe check --report reports/project.json -- /absolute/path/to/sha256-program
+```
+
+Hashprobe starts the program once per test. Replace the example path with your built program or wrapper.
 
 Start with [the C example](examples/sha256_target.c). To test a device, write a small program that sends it the input and prints the returned hash.
 
@@ -76,23 +144,31 @@ Hashprobe stops if the program crashes, exceeds its time limit, or returns unrea
 
 ## Repeat a failure
 
-Run the example with its intentional bug, which stops hashing at the first zero byte:
+From the Hashprobe source folder, create the report folder:
 
 ```sh
-./build/hashprobe check --report reports/nul-bug.json \
+mkdir -p reports
+```
+
+Run the included example with its intentional bug, which stops hashing at the first zero byte:
+
+```sh
+hashprobe check --report reports/nul-bug.json \
   -- ./build/sha256-target --demo-bug-nul
 ```
 
 This reports mismatches and exits with code `1`. Replay the saved failures with the bug disabled:
 
 ```sh
-./build/hashprobe replay reports/nul-bug.json --report reports/fixed.json \
+hashprobe replay reports/nul-bug.json --report reports/fixed.json \
   -- ./build/sha256-target
 ```
 
 The saved tests should pass. Replay tests only saved failures against the program after `--`. Run `check` again to test the full set.
 
 Use `--demo-bugs` for several repeatable faults: dropped input bytes, a flipped output bit, and reversed byte order.
+
+The example shares Hashprobe's reference code; OpenSSL provides a separate implementation to compare.
 
 ## Coverage and options
 
@@ -119,7 +195,7 @@ Place options before `--`:
 Show all options and limits:
 
 ```sh
-./build/hashprobe --help
+hashprobe --help
 ```
 
 ## Development
@@ -148,7 +224,13 @@ Run the MCP tests:
 make test-mcp PYTHON=.venv/bin/python
 ```
 
-Run both test suites with extra checks for memory errors and invalid C operations:
+Check installation and agent setup in temporary directories:
+
+```sh
+make test-install
+```
+
+Run all test suites with extra checks for memory errors and invalid C operations:
 
 ```sh
 make sanitize PYTHON=.venv/bin/python
@@ -156,9 +238,19 @@ make sanitize PYTHON=.venv/bin/python
 
 The shared C engine is in [src](src), and the MCP server is in [mcp/src](mcp/src). See [code origins](PROVENANCE.md) for the reference implementation and included libraries.
 
+During development, use `./build/hashprobe` and `./build/hashprobe-mcp` to run the current build without installing it. After an update, run `make` and the install command again. Client registration uses the installed path, so it only needs to be done once.
+
+To remove the installed commands:
+
+```sh
+make uninstall PREFIX="$HOME/.local"
+```
+
+Your configuration and reports are kept. Remove the `hashprobe` entry from your client's MCP settings if you no longer use it.
+
 ## CI and releases
 
-[CI](.github/workflows/ci.yml) runs on pull requests and pushes to `main`. It checks the CLI and MCP server with GCC and Clang on Linux and macOS, verifies the copied source files, checks installation and release archives, and runs both test suites with AddressSanitizer and UndefinedBehaviorSanitizer. Compiler warnings fail the normal builds.
+[CI](.github/workflows/ci.yml) runs on pull requests and pushes to `main`. It checks the CLI and MCP server with GCC and Clang on Linux and macOS, verifies the copied source files, checks installation and release archives, and runs all test suites with AddressSanitizer and UndefinedBehaviorSanitizer. Compiler warnings fail the normal builds.
 
 Each successful platform build saves a downloadable archive in the workflow run. [Dependabot](.github/dependabot.yml) checks weekly for updates to GitHub Actions and the MCP test client.
 

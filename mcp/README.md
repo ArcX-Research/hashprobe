@@ -1,54 +1,63 @@
 # Use Hashprobe with agents
 
-Hashprobe's MCP server lets agents test programs you configure, inspect failing inputs, and check fixes. It stores reports locally and runs as one C executable on macOS or Linux. Python is not needed to use it.
+Hashprobe is a local MCP server for testing SHA-256 programs. Your agent app starts it on the same computer, and Hashprobe runs the programs you configure there. It saves reports locally and returns results to the agent. Python and web hosting are not needed to use it.
 
-## Build and install
+## Install
 
-To skip the build, use a [prebuilt release](../docs/BINARIES.md), then continue with **Connect an agent** below.
+Follow the [installation instructions](../README.md#install) or use a [prebuilt release](../docs/BINARIES.md). Both install `hashprobe` and `hashprobe-mcp` in `~/.local/bin`; add that directory to your `PATH`.
 
-You need a C11 compiler, Make, and awk. Run these commands from the main Hashprobe folder.
-
-Build:
-
-```sh
-make
-```
-
-Install for your user:
-
-```sh
-make install PREFIX="$HOME/.local"
-```
-
-This puts `hashprobe` and `hashprobe-mcp` in `~/.local/bin`. To use the build without installing it, run `./build/hashprobe-mcp` from the repository instead of the installed path below.
+Install once for your user, then connect each agent app below. You can use the installed commands from any project.
 
 ## Connect an agent
 
-With OpenSSL installed, create a configuration:
+You need your chosen app's CLI installed. For a new configuration, setup also needs OpenSSL to create the first example target. Choose the command for your app.
+
+For Codex:
 
 ```sh
-"$HOME/.local/bin/hashprobe-mcp" init
+hashprobe-mcp setup --client codex
 ```
 
-This saves `~/.config/hashprobe/mcp.json` and prints the connection settings. It never replaces an existing configuration.
-
-If you already have a configuration, print its connection settings:
+For Claude Code:
 
 ```sh
-"$HOME/.local/bin/hashprobe-mcp" client-config
+hashprobe-mcp setup --client claude
 ```
 
-Add the printed `hashprobe` entry to your agent application's MCP settings. If the application uses a setup form, enter the printed `command` and `args`, then choose **stdio**.
+Setup uses the client's CLI to register Hashprobe for your user across projects. It saves absolute paths, so the client can launch the server even when its `PATH` differs from your terminal's. See the client documentation for [Codex](https://developers.openai.com/codex/mcp/) and [Claude Code](https://code.claude.com/docs/en/mcp).
 
-Reconnect the agent. It starts Hashprobe automatically. Try this prompt:
+There are two separate settings:
 
-> List the Hashprobe programs I can test, then check OpenSSL and explain the result.
+- `~/.config/hashprobe/mcp.json` defines the programs Hashprobe can test. Setup creates it with an `openssl` target if missing, or validates and keeps the existing file.
+- Your app's MCP settings tell it how to start the installed `hashprobe-mcp` executable. Setup adds the `hashprobe` entry there.
 
-For your own program, follow the next section.
+Restart the app. It starts the server automatically and discovers `list_targets`, `check`, `get_failure`, and `replay`. You do not need to run the server yourself or enter a server URL.
+
+With the default configuration, ask:
+
+> Use Hashprobe to list the configured targets, check the openssl target, and show the result.
+
+Expect `117` passed tests and a complete report. That confirms the connection and checks OpenSSL. Add your own program below to test your code.
+
+### Other clients
+
+Create a configuration if you do not have one:
+
+```sh
+hashprobe-mcp init
+```
+
+Print the connection settings:
+
+```sh
+hashprobe-mcp client-config
+```
+
+Add the printed `hashprobe` entry to the client's user-level MCP settings, then restart it. [Cursor](https://cursor.com/docs/mcp) uses `~/.cursor/mcp.json`. For a setup form, enter the printed `command` and `args`, then choose **stdio**. Installing a command on `PATH` does not register it with an MCP client.
 
 ## Add a program
 
-Add a named entry under `targets` in your configuration:
+Open `~/.config/hashprobe/mcp.json` and add a named entry under `targets`, keeping your existing settings. Replace the example paths with your program and its working directory:
 
 ```json
 {
@@ -64,18 +73,24 @@ Add a named entry under `targets` in your configuration:
 }
 ```
 
-The program must [read input bytes and return a SHA-256 hash](../README.md#test-your-own-program). Use `output: "binary"` for 32 raw digest bytes, or `output: "hex"` for 64 hex characters.
+`command` points to an executable or wrapper script; `cwd` is the folder it runs in. A project folder alone is not a test target. The program must [read input bytes and return a SHA-256 hash](../README.md#test-your-own-program). Use `output: "binary"` for 32 raw digest bytes, or `output: "hex"` for 64 hex characters.
 
-Relative `cwd` paths start from the configuration file's directory. A relative executable path starts from `cwd`; a name such as `openssl` is looked up on `PATH`. Restart the server after editing the configuration.
+Restart the agent app to load the updated targets, then ask:
 
-To create a separate configuration for a program:
+> Use Hashprobe to check the firmware target. If it fails, show the input and compare the expected and actual hashes.
+
+Agents select the configured name, such as `firmware`. MCP calls cannot supply arbitrary commands. You only need to install and connect Hashprobe once; adding another target makes another program available to agents.
+
+Relative `cwd` paths start from the configuration file's directory. A relative executable path starts from `cwd`; a name such as `openssl` is looked up on `PATH`.
+
+Optional: create a separate configuration, or use this command to start with your own program when OpenSSL is unavailable:
 
 ```sh
-"$HOME/.local/bin/hashprobe-mcp" init --config ./my-mcp.json --name firmware \
+hashprobe-mcp init --config ./my-mcp.json --name firmware \
   -- /absolute/path/to/sha256-program
 ```
 
-This prints connection settings for that configuration. Agents choose names such as `firmware`; the configuration determines which commands they can run. See the [sample configuration](examples/config.json) for more examples.
+This prints connection settings for that configuration. Register it with `hashprobe-mcp setup --client codex --config ./my-mcp.json`, or copy the settings into your client. See the [sample configuration](examples/config.json) for more examples.
 
 ## Tools
 
@@ -95,6 +110,8 @@ For `replay`, add `case_id` to select one failure. Run `check` afterward to test
 A wrong hash returns `status: "mismatch"` for the agent to investigate. Invalid arguments or unavailable reports return tool errors. A successful run has both `status: "pass"` and `counts.complete: true`.
 
 ## Reports and limits
+
+With the default configuration, MCP reports are saved in `~/.config/hashprobe/reports`. The agent receives a report ID and uses `get_failure` to inspect saved failures or `replay` to check a fix.
 
 Set these options alongside `targets` in your configuration:
 

@@ -136,7 +136,8 @@ void mcp_config_free(mcp_config *config) {
 
 int mcp_initialize(const char *path, const char *name, const char *output, char **command, char *error) {
     char *defaults[] = {"openssl", "dgst", "-sha256", "-binary", NULL};
-    if (!command || !*command) {
+    int default_command = !command || !*command;
+    if (default_command) {
         command = defaults;
         output = "binary";
         if (!name) name = "openssl";
@@ -157,6 +158,10 @@ int mcp_initialize(const char *path, const char *name, const char *output, char 
     if (!cwd || !absolute) snprintf(error, MCP_ERROR_SIZE, "cannot resolve configuration path");
     else if (!target_load(&target, name, target_json, cwd, error)) {
         cJSON_ReplaceItemInArray(argv, 0, cJSON_CreateString(target.command[0]));
+        /* OpenSSL needs no project files. Keep it usable after the checkout
+         * used during installation has been moved or removed. */
+        if (default_command)
+            cJSON_ReplaceItemInObjectCaseSensitive(target_json, "cwd", cJSON_CreateString("."));
         text = cJSON_Print(root);
         parent = strdup(absolute);
         if (!text || !parent) hp_fatal("out of memory");
