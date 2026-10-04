@@ -117,3 +117,9 @@ See the [development instructions](../README.md#development) for tests and memor
 The server communicates through standard input and output (`stdio`). It supports MCP `2026-07-28` and the initialization handshake used by `2025-11-25`, `2025-06-18`, `2025-03-26`, and `2024-11-05` clients. Messages are limited to 256 KiB on input, with up to 1 MiB of queued responses.
 
 Share the source and build instructions, or a binary matching the recipient's operating system and CPU. Linux binaries also need a compatible C library. Each user configures their own programs.
+
+## Web-based MCP audits
+
+[M8ven Pre-Flight](https://m8ven.ai/preflight) requires a deployed HTTPS MCP endpoint using Streamable HTTP. This server uses local `stdio`; a GitHub URL or the browser lab URL cannot serve as that endpoint. Local compatibility checks run with `make test-mcp PYTHON=.venv/bin/python`.
+
+A hosted service needs its own HTTP transport and tool scope. Paths on the server refer to the server's files, not an agent's project. A hosted version could check inputs and hash results submitted by agents that run their code locally.

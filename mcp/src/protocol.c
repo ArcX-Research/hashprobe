@@ -154,10 +154,13 @@ static void call_tool(mcp_server *server, const cJSON *id, int modern, const cJS
     for (const cJSON *item = tools->child; item; item = item->next)
         if (!strcmp(name, mcp_string(mcp_get(item, "name")))) definition = item;
     if (!definition) {
-        mcp_tool_result(server, id, modern, NULL, "unknown tool; use tools/list"); return;
+        rpc_error(server, id, -32602, "unknown tool; use tools/list", NULL); return;
+    }
+    const cJSON *args = mcp_get(params, "arguments");
+    if (args && !cJSON_IsObject(args)) {
+        rpc_error(server, id, -32602, "tools/call arguments must be an object", NULL); return;
     }
     cJSON *empty = cJSON_CreateObject();
-    const cJSON *args = mcp_get(params, "arguments");
     if (!args) args = empty;
     char error[MCP_ERROR_SIZE];
     if (mcp_arguments(mcp_get(definition, "inputSchema"), args, error))

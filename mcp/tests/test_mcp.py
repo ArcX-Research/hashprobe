@@ -86,12 +86,16 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
                              {"list_targets", "check", "get_failure", "replay"})
             for tool in listing.tools:
                 self.assertIsNotNone(tool.output_schema)
-                if tool.name in ("check", "replay"):
-                    self.assertFalse(tool.annotations.read_only_hint)
-                    self.assertTrue(tool.annotations.destructive_hint)
+                reads_only = tool.name in ("list_targets", "get_failure")
+                self.assertEqual(tool.annotations.read_only_hint, reads_only)
+                self.assertEqual(tool.annotations.destructive_hint, not reads_only)
+                self.assertEqual(tool.annotations.idempotent_hint, reads_only)
+                self.assertEqual(tool.annotations.open_world_hint, not reads_only)
             targets = await self.call(client, "list_targets", {})
             self.assertEqual({item["name"] for item in targets["targets"]}, set(self.settings["targets"]))
             self.assertNotIn("command", targets["targets"][0])
+            self.assertEqual(await self.call(client, "list_targets", {}), targets)
+            self.assertEqual(list((self.directory / "reports").glob("*.json")), [])
 
     async def test_full_run_uses_embedded_engine_from_another_directory(self):
         async with self.client() as client:
@@ -137,6 +141,9 @@ class MCPTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(first["input_hex"], "00")
             self.assertEqual(first["expected_hex"], hashlib.sha256(b"\0").hexdigest())
             self.assertEqual(first["actual_hex"], hashlib.sha256(b"").hexdigest())
+            saved = self.report(report_id).read_bytes()
+            self.assertEqual(await self.call(client, "get_failure", {"report_id": report_id}), first)
+            self.assertEqual(self.report(report_id).read_bytes(), saved)
             page = await self.call(client, "get_failure", {"report_id": report_id, "index": 2, "limit": 1})
             self.assertEqual(page["input_bytes"], 2)
             self.assertEqual(page["next_offset"], 1)

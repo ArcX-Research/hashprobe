@@ -227,7 +227,7 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(list((self.directory / "reports").glob("*.json")), [])
 
     async def test_invalid_tool_arguments_do_not_start_a_run(self):
-        for arguments in ({}, [], {"target": "native", "random_cases": 1.5},
+        for arguments in ({}, {"target": "native", "random_cases": 1.5},
                           {"target": "native", "random_cases": True},
                           {"target": "native", "random_cases": 1.0},
                           {"target": "native", "seed": -1},
@@ -235,6 +235,29 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(arguments=arguments):
                 result = await self.call("tools/call", {"name": "check", "arguments": arguments})
                 self.assertTrue(result["result"]["isError"])
+        self.assertEqual(list((self.directory / "reports").glob("*.json")), [])
+
+    async def test_protocol_errors_preserve_the_connection(self):
+        for modern in (True, False):
+            if not modern:
+                await self.call("initialize", {
+                    "protocolVersion": "2025-11-25", "capabilities": {},
+                    "clientInfo": {"name": "preflight-test", "version": "1"},
+                }, modern=False)
+                await self.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+            cases = [
+                ("unknown-method", {}, -32601),
+                ("tools/call", {"name": "unknown-tool"}, -32602),
+                ("tools/call", {"name": "check", "arguments": []}, -32602),
+                ("tools/call", {"name": "check", "arguments": None}, -32602),
+                ("tools/call", {"name": "check", "arguments": "native"}, -32602),
+            ]
+            for method, params, code in cases:
+                with self.subTest(modern=modern, method=method, params=params):
+                    response = await self.call(method, params, modern=modern)
+                    self.assertEqual(response["error"]["code"], code)
+                    self.assertNotIn("result", response)
+                    self.assertIn("result", await self.call("ping", modern=modern))
         self.assertEqual(list((self.directory / "reports").glob("*.json")), [])
 
     async def test_sigterm_stops_the_target_and_its_descendant(self):

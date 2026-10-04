@@ -10,6 +10,8 @@ Hashprobe checks whether a program calculates SHA-256 hashes correctly. It saves
 
 The command-line tool and [MCP server for agents](mcp/README.md) are written in C.
 
+Agents use `list_targets` to find configured programs, `check` to test them, `get_failure` to inspect a failing input, and `replay` to test saved failures after a fix.
+
 [![Hashprobe detects incorrect SHA-256 hashes and verifies the fix](docs/assets/hashprobe.gif)](docs/assets/hashprobe.mp4)
 
 [Watch the video (15 seconds)](docs/assets/hashprobe.mp4): recorded tests with intentional bugs, followed by a verified fix.
