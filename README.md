@@ -4,6 +4,7 @@
 [![C11](https://img.shields.io/badge/C-C11-00599C)](Makefile)
 [![Linux and macOS](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-555)](docs/BINARIES.md)
 [![MIT license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![M8ven Score](https://m8ven.ai/badge/mcp/arcx-research/hashprobe)](https://m8ven.ai/mcp/arcx-research/hashprobe?s=readme)
 
 Hashprobe checks whether a program calculates SHA-256 hashes correctly. It saves failing inputs so you can test a fix. Use it to test changes to crypto libraries, compilers, or firmware.
 
